@@ -1,6 +1,8 @@
 {application, gen_httpd,  [
+	{description, "Generic HTTP daemon behaviour."},
 	{vsn, "%VSN%"}, 
 	{modules, [%MODULES%]},
+	{registered, []},
 	{applications, [kernel, stdlib, gen_tcpd]},
 	{env, []}
 ]}.
