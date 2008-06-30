@@ -20,7 +20,7 @@ APP = $(APPSRC:.app.src=.app)
 ## Dependecy Search Paths
 VPATH = src:include:ebin
 
-all: $(APP) $(BEAMS) depend c_src
+all: depend $(APP) $(BEAMS) c_src
 
 .PHONY: all clean c_src
 .SUFFIXES: .erl .beam .app.src .app
