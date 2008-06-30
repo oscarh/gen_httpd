@@ -1,32 +1,36 @@
 -module(gen_httpd).
+-behaviour(gen_tcpd).
+
 -export([start_link/4, start_link/5, recv/3]).
--export([init/1, handle_request/2]).
+-export([init/1, handle_connection/2]).
+
+-export([behaviour_info/1]).
 
 -record(state, {
 	socket,
 	sock_mod,
 	timeout,
-	mod,
-	args,
+	callback,
+	callbackstate,
 	buf
 }).
 
-start_link(Port, Timeout, Mod, State) ->
+start_link(Callback, CallbackArgs, Port, Timeout) ->
 	IntState = #state{
 		sock_mod = gen_tcp,
 		timeout = Timeout,
-		mod = Mod,
-		args = State,
+		callback = Callback,
+		callbackstate = CallbackArgs,
 		buf = []
 	},
 	gen_tcpd:start_link(?MODULE, IntState, Port, [{active, false}]).
 
-start_link(Port, Timeout, SSL, Mod, State) ->
+start_link(Callback, CallbackArgs, Port, Timeout, SSL) ->
 	IntState = #state{
 		sock_mod = ssl,
 		timeout = Timeout,
-		mod = Mod,
-		args = State,
+		callback = Callback,
+		callbackstate = CallbackArgs,
 		buf = []
 	},
 	gen_ssld:start_link(?MODULE, IntState, Port, [{active, false}|SSL]).
@@ -46,10 +50,15 @@ recv(#state{socket = Socket, buf = Buf} = State, T, Size) ->
 			exit(Reason)
 	end.
 
-init(State) ->
-	{ok, State}.
+init(#state{callback = Callback, callbackstate = CallbackArgs} = State) ->
+	case Callback:init(CallbackArgs) of
+		{ok, CallbackState} ->
+			{ok, State#state{callbackstate = CallbackState}};
+		Other ->
+			exit({bad_return, Other})
+	end.
 
-handle_request(Socket, State) ->
+handle_connection(Socket, State) ->
 	NewState = State#state{socket = Socket},
 	{Req, Headers, Body} = receive_loop(NewState, []),
 	handle_request(NewState#state{buf = Body}, Req, Headers).
@@ -64,7 +73,7 @@ handle_request(State, {Method, Path, Vsn}, Headers) ->
 	end,
 	case {Vsn, lists:keysearch("Connection", 1, Headers), Close} of
 		{"HTTP/1.1", {value, {_, KeepAlive}}, true} when KeepAlive /= "close" ->
-			handle_request(NewState#state.socket, State);
+			handle_connection(NewState#state.socket, State);
 		_ ->
 			(NewState#state.sock_mod):close(NewState#state.socket),
 			exit(normal)
@@ -85,22 +94,39 @@ receive_loop(#state{socket = Socket, sock_mod = SockMod, timeout = Timeout} = S,
 	end.
 
 call_callback(State, "GET", Path, VSN, Headers) ->
-	(State#state.mod):handle_get(State, {get, Path, VSN}, Headers, State#state.args);
+	(State#state.callback):handle_get(State, {get, Path, VSN}, Headers,
+		State#state.callbackstate);
 call_callback(State, "PUT", Path, VSN, Headers) ->
 	{Body, NewState} = handle_upload(State, Headers),
-	(State#state.mod):handle_put(NewState, {put, Path, VSN}, Headers, State#state.args, Body);
+	(State#state.callback):handle_put(NewState, {put, Path, VSN}, Headers,
+		Body, State#state.callbackstate);
 call_callback(State, "HEAD", Path, VSN, Headers) ->
-	(State#state.mod):handle_head(State, {head, Path, VSN}, Headers, State#state.args);
+	(State#state.callback):handle_head(State, {head, Path, VSN}, Headers,
+		State#state.callbackstate);
 call_callback(State, "POST", Path, VSN, Headers) ->
 	{Body, NewState} = handle_upload(State, Headers),
-	(State#state.mod):handle_post(NewState, {post, Path, VSN}, Headers, State#state.args, Body);
+	(State#state.callback):handle_post(NewState, {post, Path, VSN}, Headers,
+		Body, State#state.callbackstate);
 call_callback(State, "OPTIONS", Path, VSN, Headers) ->
-	(State#state.mod):handle_options(State, {options, Path, VSN}, Headers, State#state.args);
+	(State#state.callback):handle_options(State, {options, Path, VSN},
+		Headers, State#state.callbackstate);
 call_callback(State, "TRACE", Path, VSN, Headers) ->
-	(State#state.mod):handle_trace(State, {trace, Path, VSN}, Headers, State#state.args).
+	(State#state.callback):handle_trace(State, {trace, Path, VSN}, Headers,
+		State#state.callbackstate).
 
 handle_upload(State, Headers) ->
 	case lists:keysearch("Content-Length", 1, Headers) of
 		{value, {_, Size}} -> recv(State, State#state.timeout, list_to_integer(Size));
 		false              -> {[], State}
 	end.
+
+behaviour_info(callbacks) ->
+	[
+		{init,1},
+		{handle_get, 4},
+		{handle_put, 5},
+		{handle_head, 4},
+		{handle_post, 5},
+		{handle_options, 4},
+		{handle_trace, 4}
+	].
