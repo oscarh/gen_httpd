@@ -60,7 +60,7 @@ handle_request(State, {Method, Path, Vsn}, Headers) ->
 	{Close, Reply, NewCBState} = handle_response(Vsn, Resp),
 	ok = gen_tcpd:send(NewState#state.socket, Reply),
 	case {Vsn, proplists:get_value("Connection", Headers), Close} of
-		{"HTTP/1.1", KeepAlive, true} when KeepAlive /= "close" ->
+		{"HTTP/1.1", KeepAlive, false} when KeepAlive /= "close" ->
 			handle_request(NewState#state{callbackstate = NewCBState});
 		_ ->
 			gen_tcpd:close(NewState#state.socket),
