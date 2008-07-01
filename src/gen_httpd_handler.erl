@@ -56,17 +56,12 @@ handle_request(State) ->
 	handle_request(State#state{buf = Body}, Req, Headers).
 
 handle_request(State, {Method, Path, Vsn}, Headers) ->
-	{Close, NewState} =
-	case call_callback(State, Method, Path, Vsn, Headers) of
-		{C, NS} ->
-			{C == close, NS};
-		{C, Reply, NS} ->
-			ok = gen_tcpd:send(NS#state.socket, Reply),
-			{C == close, NS}
-	end,
+	{NewState, Resp} = call_callback(State, Method, Path, Vsn, Headers),
+	{Close, Reply, NewCBState} = handle_response(Vsn, Resp),
+	ok = gen_tcpd:send(NewState#state.socket, Reply),
 	case {Vsn, proplists:get_value("Connection", Headers), Close} of
 		{"HTTP/1.1", KeepAlive, true} when KeepAlive /= "close" ->
-			handle_request(State);
+			handle_request(NewState#state{callbackstate = NewCBState});
 		_ ->
 			gen_tcpd:close(NewState#state.socket),
 			{ok, NewState}
@@ -118,3 +113,44 @@ handle_upload(State, Headers) ->
 		undefined -> {[], State};
 		Size      -> recv(State, State#state.timeout, list_to_integer(Size))
 	end.
+
+handle_response(Vsn, {reply, Status, Reason, Headers, Close, CBState}) ->
+	Resp = [
+		status_line(Vsn, Status, Reason),
+		headers(Vsn, Headers, Close)
+	],
+	{Close, Resp, CBState};
+handle_response(Vsn, {reply, Status, Reason, Headers, Body, Close, CBState}) ->
+	Resp = [
+		status_line(Vsn, Status, Reason),
+		headers(Vsn, add_headers(Headers, [], iolist_size(Body)), Close),
+		Body
+	],
+	{Close, Resp, CBState}.
+
+add_headers([{"Content-Length", _} | _] = Headers, Acc, _) ->
+	Headers ++ Acc;
+add_headers([{"content-length", _} | _] = Headers, Acc, _) ->
+	Headers ++ Acc;
+add_headers([{"Transfer-Encoding", _} | _] = Headers, Acc, _) ->
+	Headers ++ Acc;
+add_headers([{"transfer-encoding", _} | _] = Headers, Acc, _) ->
+	Headers ++ Acc;
+add_headers([H | T], Acc, ContentLength) ->
+	add_headers(T, [H | Acc], ContentLength);
+add_headers([], Acc, ContentLength) ->
+	[{"Content-Length", ContentLength} | Acc].
+
+status_line(Vsn, Status, Reason) ->
+	[Vsn, $\ , integer_to_list(Status), $\ , Reason, $\r, $\n].
+
+headers(Vsn, Headers, Close) ->
+	AllHeaders = case {Vsn, Close} of
+		{"HTTP/1.1", true} ->
+			[{"Connection", "close"} | Headers];
+		{_, _} ->
+			Headers
+	end,
+	[lists:map(fun({Name, Value}) ->
+					[Name, $:, $\ , Value, $\r, $\n]
+			end, AllHeaders), $\r, $\n].
