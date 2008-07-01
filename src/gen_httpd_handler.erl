@@ -78,7 +78,12 @@ receive_loop(#state{socket = Socket} = S, Acc) ->
 			end;
 		{error, timeout} ->
 			gen_tcpd:close(Socket),
-			exit(normal)
+			exit(normal);
+		{error, closed} ->
+			gen_tcpd:close(Socket),
+			exit(normal);
+		{error, Reason} ->
+			exit(Reason)
 	end.
 
 call_callback(State, "GET", Path, VSN, Headers) ->
