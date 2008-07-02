@@ -11,6 +11,8 @@
 	buf = []
 }).
 
+-include("gen_httpd.hrl").
+
 spawn_handler(Callback, Args, Timeout) ->
 	proc_lib:spawn_link(fun() ->
 		{ok, CState} = Callback:init(Args),
@@ -89,35 +91,58 @@ receive_loop(#state{socket = Socket} = S, Acc) ->
 call_callback(State, "GET", Path, VSN, Headers) ->
 	Callback = State#state.callback,
 	CBState = State#state.callbackstate,
-	{State, Callback:handle_get(Path, VSN, Headers, CBState)};
+	ConnInfo = conn_info(State#state.socket),
+	{State, Callback:handle_get(Path, VSN, Headers, ConnInfo, CBState)};
 call_callback(State, "PUT", Path, VSN, Headers) ->
 	{Body, NewState} = handle_upload(State, Headers),
 	Callback = State#state.callback,
 	CBState = State#state.callbackstate,
-	{NewState, Callback:handle_put(Path, VSN, Headers, Body, CBState)};
+	ConnInfo = conn_info(State#state.socket),
+	Reply = Callback:handle_put(Path, VSN, Headers, Body, ConnInfo, CBState),
+	{NewState, Reply};
 call_callback(State, "HEAD", Path, VSN, Headers) ->
 	Callback = State#state.callback,
 	CBState = State#state.callbackstate,
-	{State, Callback:handle_head(Path, VSN, Headers, CBState)};
+	ConnInfo = conn_info(State#state.socket),
+	{State, Callback:handle_head(Path, VSN, Headers, ConnInfo, CBState)};
 call_callback(State, "POST", Path, VSN, Headers) ->
 	Callback = State#state.callback,
 	CBState = State#state.callbackstate,
 	{Body, NewState} = handle_upload(State, Headers),
-	{NewState, Callback:handle_post(Path, VSN, Headers, Body, CBState)};
+	ConnInfo = conn_info(State#state.socket),
+	Reply = Callback:handle_post(Path, VSN, Headers, Body, ConnInfo, CBState),
+	{NewState, Reply};
 call_callback(State, "OPTIONS", Path, VSN, Headers) ->
 	Callback = State#state.callback,
 	CBState = State#state.callbackstate,
-	Callback:handle_options(Path, VSN, Headers, CBState);
+	ConnInfo = conn_info(State#state.socket),
+	Callback:handle_options(Path, VSN, Headers, ConnInfo, CBState);
 call_callback(State, "TRACE", Path, VSN, Headers) ->
 	Callback = State#state.callback,
 	CBState = State#state.callbackstate,
-	{State, Callback:handle_trace(Path, VSN, Headers, CBState)}.
+	ConnInfo = conn_info(State#state.socket),
+	{State, Callback:handle_trace(Path, VSN, Headers, ConnInfo, CBState)}.
 
 handle_upload(State, Headers) ->
 	case proplists:get_value("Content-Length", Headers) of
 		undefined -> {[], State};
 		Size      -> recv(State, State#state.timeout, list_to_integer(Size))
 	end.
+
+conn_info(Socket) ->
+	{ok, {RemoteHost, RemotePort}} = gen_tcpd:peername(Socket),
+	{ok, {LocalHost, LocalPort}} = gen_tcpd:sockname(Socket),
+	Type = case gen_tcpd:type(Socket) of
+		ssl -> https;
+		tcp -> http
+	end,
+	#gen_httpd_conn{
+		schema = Type,
+		remote_host = RemoteHost,
+		remote_port = RemotePort,
+		local_host = LocalHost,
+		local_port = LocalPort
+	}.
 
 handle_response(Vsn, {reply, Status, Reason, Headers, Close, CBState}) ->
 	Resp = [
