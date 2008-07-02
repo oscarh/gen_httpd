@@ -169,7 +169,7 @@ add_headers([{"transfer-encoding", _} | _] = Headers, Acc, _) ->
 add_headers([H | T], Acc, ContentLength) ->
 	add_headers(T, [H | Acc], ContentLength);
 add_headers([], Acc, ContentLength) ->
-	[{"Content-Length", ContentLength} | Acc].
+	[{"Content-Length", integer_to_list(ContentLength)} | Acc].
 
 status_line(Vsn, Status, Reason) ->
 	[Vsn, $\ , integer_to_list(Status), $\ , Reason, $\r, $\n].
