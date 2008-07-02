@@ -138,9 +138,9 @@ conn_info(Socket) ->
 	end,
 	#gen_httpd_conn{
 		schema = Type,
-		remote_host = RemoteHost,
+		remote_address = RemoteHost,
 		remote_port = RemotePort,
-		local_host = LocalHost,
+		local_address = LocalHost,
 		local_port = LocalPort
 	}.
 

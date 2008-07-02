@@ -1,7 +1,7 @@
 -record(gen_httpd_conn, {
 		schema,
-		remote_host,
+		remote_address,
 		remote_port,
-		local_host,
+		local_address,
 		local_port
 	}).
