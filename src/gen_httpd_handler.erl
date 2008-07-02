@@ -57,8 +57,8 @@ handle_request(State) ->
 	{Req, Headers, Body} = receive_loop(State, []),
 	handle_request(State#state{buf = Body}, Req, Headers).
 
-handle_request(State, {Method, Path, Vsn}, Headers) ->
-	{NewState, Resp} = call_callback(State, Method, Path, Vsn, Headers),
+handle_request(State, {Method, URI, Vsn}, Headers) ->
+	{NewState, Resp} = call_callback(State, Method, URI, Vsn, Headers),
 	{Close, Reply, NewCBState} = handle_response(Vsn, Resp),
 	ok = gen_tcpd:send(NewState#state.socket, Reply),
 	case {Vsn, proplists:get_value("Connection", Headers), Close} of
@@ -88,40 +88,40 @@ receive_loop(#state{socket = Socket} = S, Acc) ->
 			exit(Reason)
 	end.
 
-call_callback(State, "GET", Path, VSN, Headers) ->
+call_callback(State, "GET", URI, VSN, Headers) ->
 	Callback = State#state.callback,
 	CBState = State#state.callbackstate,
 	ConnInfo = conn_info(State#state.socket),
-	{State, Callback:handle_get(Path, VSN, Headers, ConnInfo, CBState)};
-call_callback(State, "PUT", Path, VSN, Headers) ->
+	{State, Callback:handle_get(URI, VSN, Headers, ConnInfo, CBState)};
+call_callback(State, "PUT", URI, VSN, Headers) ->
 	{Body, NewState} = handle_upload(State, Headers),
 	Callback = State#state.callback,
 	CBState = State#state.callbackstate,
 	ConnInfo = conn_info(State#state.socket),
-	Reply = Callback:handle_put(Path, VSN, Headers, Body, ConnInfo, CBState),
+	Reply = Callback:handle_put(URI, VSN, Headers, Body, ConnInfo, CBState),
 	{NewState, Reply};
-call_callback(State, "HEAD", Path, VSN, Headers) ->
+call_callback(State, "HEAD", URI, VSN, Headers) ->
 	Callback = State#state.callback,
 	CBState = State#state.callbackstate,
 	ConnInfo = conn_info(State#state.socket),
-	{State, Callback:handle_head(Path, VSN, Headers, ConnInfo, CBState)};
-call_callback(State, "POST", Path, VSN, Headers) ->
+	{State, Callback:handle_head(URI, VSN, Headers, ConnInfo, CBState)};
+call_callback(State, "POST", URI, VSN, Headers) ->
 	Callback = State#state.callback,
 	CBState = State#state.callbackstate,
 	{Body, NewState} = handle_upload(State, Headers),
 	ConnInfo = conn_info(State#state.socket),
-	Reply = Callback:handle_post(Path, VSN, Headers, Body, ConnInfo, CBState),
+	Reply = Callback:handle_post(URI, VSN, Headers, Body, ConnInfo, CBState),
 	{NewState, Reply};
-call_callback(State, "OPTIONS", Path, VSN, Headers) ->
+call_callback(State, "OPTIONS", URI, VSN, Headers) ->
 	Callback = State#state.callback,
 	CBState = State#state.callbackstate,
 	ConnInfo = conn_info(State#state.socket),
-	Callback:handle_options(Path, VSN, Headers, ConnInfo, CBState);
-call_callback(State, "TRACE", Path, VSN, Headers) ->
+	Callback:handle_options(URI, VSN, Headers, ConnInfo, CBState);
+call_callback(State, "TRACE", URI, VSN, Headers) ->
 	Callback = State#state.callback,
 	CBState = State#state.callbackstate,
 	ConnInfo = conn_info(State#state.socket),
-	{State, Callback:handle_trace(Path, VSN, Headers, ConnInfo, CBState)}.
+	{State, Callback:handle_trace(URI, VSN, Headers, ConnInfo, CBState)}.
 
 handle_upload(State, Headers) ->
 	case proplists:get_value("Content-Length", Headers) of
