@@ -12,13 +12,15 @@
 	timeout
 }).
 
+-define(SOCKOPTS, {active, false}, {reuseaddr, true}).
+
 start_link(Callback, CallbackArgs, Port, Timeout) ->
 	Args = [Callback, CallbackArgs, Timeout],
-	gen_tcpd:start_link(?MODULE, Args, tcp, Port, [{active, false}]).
+	gen_tcpd:start_link(?MODULE, Args, tcp, Port, [?SOCKOPTS]).
 	
 start_link(Callback, CallbackArgs, Port, Timeout, SSL) ->
 	Args = [Callback, CallbackArgs, Timeout],
-	gen_ssld:start_link(?MODULE, Args, Port, [{active, false}|SSL]).
+	gen_tcpd:start_link(?MODULE, Args, ssl, Port, [?SOCKOPTS | SSL]).
 
 recv(Opaque, T, Size) ->
 	gen_httpd_handler:recv(Opaque, T, Size).
@@ -39,10 +41,10 @@ handle_connection(Socket, State) ->
 behaviour_info(callbacks) ->
 	[
 		{init,1},
-		{handle_get, 4},
-		{handle_put, 5},
-		{handle_head, 4},
-		{handle_post, 5},
-		{handle_options, 4},
-		{handle_trace, 4}
+		{handle_get, 5},
+		{handle_put, 6},
+		{handle_head, 5},
+		{handle_post, 6},
+		{handle_options, 5},
+		{handle_trace, 5}
 	].
