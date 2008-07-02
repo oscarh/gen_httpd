@@ -38,7 +38,7 @@ handle_connection(Handler, Socket) ->
 	ok.
 
 recv(#state{buf = Buf} = State, _T, Size) when length(Buf) >= Size ->
-	{Data, NewBuf} = lists:split(Buf, Size),
+	{Data, NewBuf} = lists:split(Size, Buf),
 	{Data, State#state{buf = NewBuf}};
 recv(#state{socket = Socket, buf = Buf} = State, T, Size) ->
 	case gen_tcpd:recv(Socket, Size - length(Buf), T) of
