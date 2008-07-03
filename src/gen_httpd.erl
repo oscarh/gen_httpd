@@ -2,7 +2,7 @@
 -behaviour(gen_tcpd).
 
 -export([start_link/4, start_link/5, recv/3]).
--export([init/1, handle_connection/2]).
+-export([init/1, handle_connection/2, terminate/2]).
 
 -export([behaviour_info/1]).
 
@@ -37,6 +37,9 @@ handle_connection(Socket, State) ->
 	gen_tcpd:controlling_process(Socket, Pid),
 	gen_httpd_handler:handle_connection(Pid, Socket),
 	{noreply, State}.
+
+terminate(_Reason, _State) ->
+	ok.
 
 behaviour_info(callbacks) ->
 	[
