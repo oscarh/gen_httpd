@@ -14,15 +14,22 @@ include vsn.mk
 APPSRC = $(patsubst src/%.app.src,%.app.src,$(wildcard src/*.app.src))
 ERLS = $(patsubst src/%.erl,%.erl,$(wildcard src/*.erl))
 BEAMS = $(ERLS:.erl=.beam)
+
+TEST_ERLS = $(patsubst test/%.erl,%.erl,$(wildcard test/*.erl))
+TEST_BEAMS = $(TEST_ERLS:.erl=.beam)
+
 MODS = $(BEAMS:.beam=)
 APP = $(APPSRC:.app.src=.app)
 
+
 ## Dependecy Search Paths
-VPATH = src:include:ebin
+VPATH = src:test:include:ebin
 
 all: depend $(APP) $(BEAMS) c_src
 
-.PHONY: all clean c_src
+test: depend $(TEST_BEAMS)
+
+.PHONY: all test clean c_src
 .SUFFIXES: .erl .beam .app.src .app
 
 clean: 
