@@ -1,6 +1,7 @@
 -module(gen_httpd_handler).
 
--export([spawn_handler/3, recv/3]).
+-export([start_link/3]).
+-export([init/4]).
 -export([handle_connection/2]).
 
 -record(state, {
@@ -13,48 +14,49 @@
 
 -include("gen_httpd.hrl").
 
-spawn_handler(Callback, Args, Timeout) ->
-	proc_lib:spawn_link(fun() ->
-		{ok, CState} = Callback:init(Args),
-		receive
-			Socket ->
-				State = #state{
-					socket = Socket,
-					callback = Callback,
-					callbackstate = CState,
-					timeout = Timeout
-				},
-				case catch handle_request(State) of
-					{'EXIT', Reason} ->
-						Callback:terminate(Reason, CState);
-					{_, #state{callbackstate =  CState0}} ->
-						Callback:terminate(normal, CState0)
-				end
-		end
-	end).
+start_link(Callback, Args, Timeout) ->
+	proc_lib:spawn_link(?MODULE, init, [self(), Callback, Args, Timeout]).
 
 handle_connection(Handler, Socket) ->
-	Handler ! Socket,
+	Handler ! {socket, Socket},
 	ok.
 
-recv(#state{buf = Buf} = State, _T, Size) when length(Buf) >= Size ->
-	{Data, NewBuf} = lists:split(Size, Buf),
-	{Data, State#state{buf = NewBuf}};
-recv(#state{socket = Socket, buf = Buf} = State, T, Size) ->
-	case gen_tcpd:recv(Socket, Size - length(Buf), T) of
-		{ok, Packet} when length(Buf) + length(Packet) == Size ->
-			{Buf ++ Packet, State#state{buf = []}};
-		{ok, Packet} ->
-			recv(State#state{buf = Buf ++ Packet}, T,
-				Size - length(Buf) - length(Packet));
-		{error, timeout} ->
-			exit(timeout);
+init(Parent, Callback, Args, Timeout) ->
+	case Callback:init(Args) of
+		{ok, CState} ->
+			State = #state{
+				timeout = Timeout,
+				callback = Callback,
+				callbackstate = CState
+			},
+			proc_lib:init_ack(Parent, {ok, self()}),
+			loop(State, []);
 		{error, Reason} ->
 			exit(Reason)
 	end.
 
-handle_request(State) ->
-	{Req, Headers, Body} = receive_loop(State, []),
+loop(#state{callback = Callback} = State, Debug) ->
+	receive
+		{socket, Socket} ->
+			gen_tcpd:setopts(Socket, [{active, once}]),
+			loop(State#state{socket = Socket}, Debug);
+		{tcp, _, Data} ->
+			case handle_data(State, Data) of
+				{continue, NewState} ->
+					loop(NewState, Debug);
+				{stop, Reason, NewState} ->
+					Callback:terminate(Reason, NewState)
+			end
+			% FIXME add handle_system_message etc.
+	end.
+
+handle_data(State, Data) ->
+	{Req, Headers, Body} = case catch gen_httpd_parser:parse(Data) of
+		{'EXIT', incomplete} ->
+			receive_loop(State, Data);
+		Result ->
+			Result
+	end,
 	handle_request(State#state{buf = Body}, Req, Headers).
 
 handle_request(State, {Method, URI, Vsn}, Headers) ->
@@ -63,10 +65,10 @@ handle_request(State, {Method, URI, Vsn}, Headers) ->
 	ok = gen_tcpd:send(NewState#state.socket, Reply),
 	case {Vsn, proplists:get_value("Connection", Headers), Close} of
 		{"HTTP/1.1", KeepAlive, false} when KeepAlive /= "close" ->
-			handle_request(NewState#state{callbackstate = NewCBState});
+			{continue, NewState#state{callbackstate = NewCBState}}; 
 		_ ->
 			gen_tcpd:close(NewState#state.socket),
-			{ok, NewState}
+			{stop, normal, NewState}
 	end.
 
 receive_loop(#state{socket = Socket} = S, Acc) ->
@@ -84,6 +86,22 @@ receive_loop(#state{socket = Socket} = S, Acc) ->
 		{error, closed} ->
 			gen_tcpd:close(Socket),
 			exit(normal);
+		{error, Reason} ->
+			exit(Reason)
+	end.
+
+recv(#state{buf = Buf} = State, _T, Size) when length(Buf) >= Size ->
+	{Data, NewBuf} = lists:split(Size, Buf),
+	{Data, State#state{buf = NewBuf}};
+recv(#state{socket = Socket, buf = Buf} = State, T, Size) ->
+	case gen_tcpd:recv(Socket, Size - length(Buf), T) of
+		{ok, Packet} when length(Buf) + length(Packet) == Size ->
+			{Buf ++ Packet, State#state{buf = []}};
+		{ok, Packet} ->
+			recv(State#state{buf = Buf ++ Packet}, T,
+				Size - length(Buf) - length(Packet));
+		{error, timeout} ->
+			exit(timeout);
 		{error, Reason} ->
 			exit(Reason)
 	end.

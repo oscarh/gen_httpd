@@ -1,75 +1,32 @@
-%%% ----------------------------------------------------------------------------
-%%% @doc
-%%% <pre>
-%%% This part has to be provided by the application using gen_httpd:
-%%%                               _____
-%%%                              |     |
-%%%                              |     | <- Application / HTTP Supervisor
-%%%                              |_____|
-%%%               
-%%%                                 |
-%%%                                 |
-%%% This is provided by gen_httpd:  |
-%%%                                 |
-%%%                               _____
-%%%                              |     |
-%%%                              |     | <- gen_httpd supervisor
-%%%                              |_____|
-%%%               
-%%%                               |   \
-%%%                               |     \
-%%%                             _____       ___
-%%%                            |     |    /     \
-%%% http workers supervisor -> |     |    |     |   <- gen_tcpd process
-%%%                            |_____|    \ ___ /
-%%%
-%%%                            /  |  \
-%%%                          /    |    \
-%%%                     ___      ___      ___
-%%%                   /     \  /     \  /     \
-%%%                   |     |  |     |  |     | <- gen_http_handler processes
-%%%                   \ ___ /  \ ___ /  \ ___ /
-%%% </pre>
-%%% @end
-%%% ----------------------------------------------------------------------------
 -module(gen_httpd).
 -behaviour(gen_tcpd).
 
--export([start_link/4, start_link/5, recv/3]).
--export([init/1, handle_connection/2, terminate/2]).
+-export([start_link/1, start_link/2, recv/3]).
+-export([init/1, handle_connection/2, handle_info/2, terminate/2]).
 
 -export([behaviour_info/1]).
 
--record(state, {
-	callback,
-	args,
-	timeout
-}).
-
 -define(SOCKOPTS, {active, false}, {reuseaddr, true}).
 
-start_link(Callback, CallbackArgs, Port, Timeout) ->
-	Args = [Callback, CallbackArgs, Timeout],
-	gen_tcpd:start_link(?MODULE, Args, tcp, Port, [?SOCKOPTS]).
+start_link(Port) ->
+	gen_tcpd:start_link(?MODULE, [], tcp, Port, [?SOCKOPTS]).
 	
-start_link(Callback, CallbackArgs, Port, Timeout, SSL) ->
-	Args = [Callback, CallbackArgs, Timeout],
-	gen_tcpd:start_link(?MODULE, Args, ssl, Port, [?SOCKOPTS | SSL]).
+start_link(Port, SSL) ->
+	gen_tcpd:start_link(?MODULE, [], ssl, Port, [?SOCKOPTS | SSL]).
 
 recv(Opaque, T, Size) ->
 	gen_httpd_handler:recv(Opaque, T, Size).
 
-init([Callback, Args, Timeout]) ->
-	{ok, #state{callback = Callback, args  = Args, timeout = Timeout}}.
+init(_) ->
+	{ok, nil}.
 
 handle_connection(Socket, State) ->
-	Pid = gen_httpd_handler:spawn_handler(
-		State#state.callback,
-		State#state.args,
-		State#state.timeout
-	),
+	{ok, Pid} = gen_httpd_handler_sup:spawn_handler(),
 	gen_tcpd:controlling_process(Socket, Pid),
 	gen_httpd_handler:handle_connection(Pid, Socket),
+	{noreply, State}.
+
+handle_info(_, State) ->
 	{noreply, State}.
 
 terminate(_Reason, _State) ->
