@@ -1,3 +1,37 @@
+%%% ----------------------------------------------------------------------------
+%%% @doc
+%%% <pre>
+%%% This part has to be provided by the application using gen_httpd:
+%%%                               _____
+%%%                              |     |
+%%%                              |     | <- Application / HTTP Supervisor
+%%%                              |_____|
+%%%               
+%%%                                 |
+%%%                                 |
+%%% This is provided by gen_httpd:  |
+%%%                                 |
+%%%                               _____
+%%%                              |     |
+%%%                              |     | <- gen_httpd supervisor
+%%%                              |_____|
+%%%               
+%%%                               |   \
+%%%                               |     \
+%%%                             _____       ___
+%%%                            |     |    /     \
+%%% http workers supervisor -> |     |    |     |   <- gen_tcpd process
+%%%                            |_____|    \ ___ /
+%%%
+%%%                            /  |  \
+%%%                          /    |    \
+%%%                     ___      ___      ___
+%%%                   /     \  /     \  /     \
+%%%                   |     |  |     |  |     | <- gen_http_handler processes
+%%%                   \ ___ /  \ ___ /  \ ___ /
+%%% </pre>
+%%% @end
+%%% ----------------------------------------------------------------------------
 -module(gen_httpd_handler).
 
 -export([spawn_handler/3, recv/3]).
@@ -144,15 +178,15 @@ conn_info(Socket) ->
 		local_port = LocalPort
 	}.
 
-handle_response(Vsn, {reply, Status, Reason, Headers, Close, CBState}) ->
+handle_response(Vsn, {reply, Status, Headers, Close, CBState}) ->
 	Resp = [
-		status_line(Vsn, Status, Reason),
+		status_line(Vsn, Status),
 		headers(Vsn, Headers, Close)
 	],
 	{Close, Resp, CBState};
-handle_response(Vsn, {reply, Status, Reason, Headers, Body, Close, CBState}) ->
+handle_response(Vsn, {reply, Status, Headers, Body, Close, CBState}) ->
 	Resp = [
-		status_line(Vsn, Status, Reason),
+		status_line(Vsn, Status),
 		headers(Vsn, add_headers(Headers, [], iolist_size(Body)), Close),
 		Body
 	],
@@ -171,8 +205,12 @@ add_headers([H | T], Acc, ContentLength) ->
 add_headers([], Acc, ContentLength) ->
 	[{"Content-Length", integer_to_list(ContentLength)} | Acc].
 
-status_line(Vsn, Status, Reason) ->
-	[Vsn, $\ , integer_to_list(Status), $\ , Reason, $\r, $\n].
+status_line(Vsn, {Status, Reason}) ->
+	[Vsn, $\ , integer_to_list(Status), $\ , Reason, $\r, $\n];
+status_line(Vsn, Status) ->
+	status_line(Vsn, {Status, reason(Status)}).
+
+reason(200) -> "OK".
 
 headers(Vsn, Headers, Close) ->
 	AllHeaders = case {Vsn, Close} of
