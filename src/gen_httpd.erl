@@ -49,5 +49,6 @@ behaviour_info(callbacks) ->
 		{handle_head, 5},
 		{handle_post, 6},
 		{handle_options, 5},
-		{handle_trace, 5}
+		{handle_trace, 5},
+		{terminate, 2}
 	].
