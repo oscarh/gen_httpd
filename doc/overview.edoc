@@ -24,13 +24,7 @@ the socket.  The responses will be serialised by gen_httpd to the client.
 -export([start_link/0]).
 -export([
 		init/1,
-		handle_get/5,
-		handle_put/6,
-		handle_head/5,
-		handle_post/6,
-		handle_options/5,
-		handle_trace/5,
-		handle_connect/6,
+		handle_request/7,
 		terminate/2
 	]).
 
@@ -40,7 +34,7 @@ start_link() ->
 init(_Arg) ->
 	{ok, nil}.
 
-handle_get(_URI, _Vsn, _Headers, _ConnInfo, State) ->
+handle_request('GET', _URI, _Vsn, _Headers, _Body, _ConnInfo, State) ->
 	ResponseHeaders = [
 		{"Server", "gen_httpd example server"},
 		{"Content-Type", "text/html; charset=UTF-8"}
@@ -51,24 +45,6 @@ handle_get(_URI, _Vsn, _Headers, _ConnInfo, State) ->
 		"&lt;body&gt;Hello World!&lt;/body&gt;"
 		"&lt;/html&gt;",
 	{reply, 200, ResponseHeaders, Body, State}.
-
-handle_put(_URI, _Vsn, _Headers, _Body, _ConnInfo, State) ->
-	{reply, 405, [], [], State}.
-
-handle_head(_URI, _Vsn, _Headers, _ConnInfo, State) ->
-	{reply, 405, [], [], State}.
-
-handle_post(_URI, _Vsn, _Headers, _Body, _ConnInfo, State) ->
-	{reply, 405, [], [], State}.
-
-handle_options(_URI, _Vsn, _Headers, _ConnInfo, State) ->
-	{reply, 405, [], [], State}.
-
-handle_trace(_URI, _Vsn, _Headers, _ConnInfo, State) ->
-	{reply, 405, [], [], State}.
-
-handle_connect(_URI, _Vsn, _Headers, _ConnInfo, _Body, State) ->
-	{reply, 405, [], [], State}.
 
 terminate(_, _) ->
 	ok.

@@ -48,13 +48,7 @@
 %%% gen_httpd module            Callback module
 %%% ----------------            ---------------
 %%% gen_httpd:start_link -----> Module:init/1
-%%% -                    -----> Module:handle_get/5
-%%% -                    -----> Module:handle_put/6
-%%% -                    -----> Module:handle_head/5
-%%% -                    -----> Module:handle_post/6
-%%% -                    -----> Module:handle_options/5
-%%% -                    -----> Module:handle_trace/5
-%%% -                    -----> Module:handle_connect/6
+%%% -                    -----> Module:handle_request/7
 %%% -                    -----> Module:terminate/2
 %%% </pre>
 %%%
@@ -85,11 +79,14 @@
 %%% to {@link start_link/6} or {@link start_link/7}.
 %%%
 %%% <pre>
-%%% Module:handle_get(URI, Vsn, Headers, ConnInfo, State) -> Result
-%%%     Types URI = string() 
+%%% Module:handle_request(Method, Vsn, Headers, Body, ConnInfo, State) -> Result
+%%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
+%%%                    'DELETE' | 'TRACE' | string
+%%%           URI = string() 
 %%%           Vsn = {Major, Minor}
 %%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
+%%%           Body = binary()
 %%%           Name = Value = string()
 %%%           ConnInfo = #gen_httpd_conn{}
 %%%           State = term()
@@ -99,130 +96,8 @@
 %%%           Description = string()
 %%%           Body = io_data()
 %%% </pre>
-%%% Handle a HTTP GET request.
+%%% Handle a HTTP request.
 %%%
-%%% <pre>
-%%% Module:handle_put(URI, Vsn, Headers, RequestBody, ConnInfo, State) -> Result
-%%%     Types URI = string() 
-%%%           Vsn = {Major, Minor}
-%%%           Major = Minor = integer()
-%%%           Headers = [{Name, Value}]
-%%%           RequestBody = string()
-%%%           Name = Value = string()
-%%%           ConnInfo = #gen_httpd_conn{}
-%%%           State = term()
-%%%           Result = {reply, Status, Headers, Body, State}
-%%%           Status = StatusCode | {StatusCode, Description}
-%%%           StatusCode = integer()
-%%%           Description = string()
-%%%           Body = io_data()
-%%% </pre>
-%%% Handle a HTTP PUT request.
-%%%
-%%% <pre>
-%%% Module:handle_head(URI, Vsn, Headers, ConnInfo, State) -> Result
-%%%     Types URI = string() 
-%%%           Vsn = {Major, Minor}
-%%%           Major = Minor = integer()
-%%%           Headers = [{Name, Value}]
-%%%           Name = Value = string()
-%%%           ConnInfo = #gen_httpd_conn{}
-%%%           State = term()
-%%%           Result = {reply, Status, Headers, Body, State}
-%%%           Status = StatusCode | {StatusCode, Description}
-%%%           StatusCode = integer()
-%%%           Description = string()
-%%%           Body = io_data()
-%%% </pre>
-%%% Handle a HTTP HEAD request.
-%%%
-%%% <pre>
-%%% Module:handle_post(URI, Vsn, Headers, RequestBody, ConnInfo, State) ->
-%%%                                                                  Result
-%%%     Types URI = string() 
-%%%           Vsn = {Major, Minor}
-%%%           Major = Minor = integer()
-%%%           Headers = [{Name, Value}]
-%%%           Name = Value = string()
-%%%           RequestBody = string()
-%%%           ConnInfo = #gen_httpd_conn{}
-%%%           State = term()
-%%%           Result = {reply, Status, Headers, Body, State}
-%%%           Status = StatusCode | {StatusCode, Description}
-%%%           StatusCode = integer()
-%%%           Description = string()
-%%%           Body = io_data()
-%%% </pre>
-%%% Handle a HTTP POST request.
-%%%
-%%% <pre>
-%%% Module:handle_options(URI, Vsn, Headers, ConnInfo, State) -> Result
-%%%     Types URI = string() 
-%%%           Vsn = {Major, Minor}
-%%%           Major = Minor = integer()
-%%%           Headers = [{Name, Value}]
-%%%           Name = Value = string()
-%%%           ConnInfo = #gen_httpd_conn{}
-%%%           State = term()
-%%%           Result = {reply, Status, Headers, Body, State}
-%%%           Status = StatusCode | {StatusCode, Description}
-%%%           StatusCode = integer()
-%%%           Description = string()
-%%%           Body = io_data()
-%%% </pre>
-%%% Handle a HTTP OPTIONS request.
-%%%
-%%% <pre>
-%%% Module:handle_trace(URI, Vsn, Headers, ConnInfo, State) -> Result
-%%%     Types URI = string() 
-%%%           Vsn = {Major, Minor}
-%%%           Major = Minor = integer()
-%%%           Headers = [{Name, Value}]
-%%%           Name = Value = string()
-%%%           ConnInfo = #gen_httpd_conn{}
-%%%           State = term()
-%%%           Result = {reply, Status, Headers, Body, State}
-%%%           Status = StatusCode | {StatusCode, Description}
-%%%           StatusCode = integer()
-%%%           Description = string()
-%%%           Body = io_data()
-%%% </pre>
-%%% Handle a HTTP TRACE request.
-%%%
-%%% <pre>
-%%% Module:handle_connect(URI, Vsn, Headers, RequestBody, ConnInfo, State) ->
-%%%                                                                    Result
-%%%     Types URI = string() 
-%%%           Vsn = {Major, Minor}
-%%%           Major = Minor = integer()
-%%%           Headers = [{Name, Value}]
-%%%           Name = Value = string()
-%%%           RequestBody = string()
-%%%           ConnInfo = #gen_httpd_conn{}
-%%%           State = term()
-%%%           Result = {reply, Status, Headers, Body, State}
-%%%           Status = StatusCode | {StatusCode, Description}
-%%%           StatusCode = integer()
-%%%           Description = string()
-%%%           Body = io_data()
-%%% </pre>
-%%% Handle a HTTP CONNECT request.
-%%%
-%%% <pre>
-%%% Module:terminate(Reason, State) -> void()
-%%%     Types Reason = State = term()
-%%% </pre>
-%%%
-%%% === Record in ConnInfo ===
-%%% <pre>
-%%% #gen_httpd_conn{
-%%%     schema         = http | https,
-%%%     remote_address = ip_address(),
-%%%     remote_port    = integer(),
-%%%     local_address  = ip_address(),
-%%%     local_port     = integer()
-%%% }
-%%% </pre>
 %%% @end
 %%% ----------------------------------------------------------------------------
 -module(gen_httpd).
@@ -361,12 +236,6 @@ validate_options([]) ->
 behaviour_info(callbacks) ->
 	[
 		{init,1},
-		{handle_get, 5},
-		{handle_put, 6},
-		{handle_head, 5},
-		{handle_post, 6},
-		{handle_options, 5},
-		{handle_trace, 5},
-		{handle_connect, 6},
+		{handle_request, 7},
 		{terminate, 2}
 	].

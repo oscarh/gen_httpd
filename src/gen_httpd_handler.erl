@@ -207,7 +207,7 @@ receive_loop(Socket, Timeout) ->
 							{error, Reason}
 					end;
 				true ->
-					{ok, {Method, URI, Vsn, Hdrs, nil}}
+					{ok, {Method, URI, Vsn, Hdrs, <<>>}}
 			end;
 		{error, timeout} ->
 			{error, tcp_timeout};
@@ -277,20 +277,13 @@ conn_info(Socket) ->
 		local_port = LocalPort
 	}.
 
-call_cb(Callback, CState, ConnInfo, 'GET', URI, Vsn, Hdrs, _) ->
-	Callback:handle_get(URI, Vsn, Hdrs, ConnInfo, CState);
-call_cb(Callback, CState, ConnInfo, 'HEAD', URI, Vsn, Hdrs, _) ->
-	Callback:handle_head(URI, Vsn, Hdrs, ConnInfo, CState);
-call_cb(Callback, CState, ConnInfo, 'OPTIONS', URI, Vsn, Hdrs, _) ->
-	Callback:handle_options(URI, Vsn, Hdrs, ConnInfo, CState);
-call_cb(Callback, CState, ConnInfo, 'TRACE', URI, Vsn, Hdrs, _) ->
-	Callback:handle_trace(URI, Vsn, Hdrs, ConnInfo, CState);
-call_cb(Callback, CState, ConnInfo, 'PUT', URI, Vsn, Hdrs, Body) ->
-	Callback:handle_put(URI, Vsn, Hdrs, Body, ConnInfo, CState);
-call_cb(Callback, CState, ConnInfo, 'POST', URI, Vsn, Hdrs, Body) ->
-	Callback:handle_post(URI, Vsn, Hdrs, Body, ConnInfo, CState);
-call_cb(Callback, CState, ConnInfo, "CONNECT", URI, Vsn, Hdrs, Body) ->
-	Callback:handle_connect(URI, Vsn, Hdrs, Body, ConnInfo, CState).
+call_cb(CB, CState, Info, Method, URI, Vsn, Hdrs, Body) ->
+	case catch CB:handle_request(Method, URI, Vsn, Hdrs, Body, Info, CState) of
+		{'EXIT', {function_clause, [{CB, handle_request, _} | _]}} ->
+			{reply, 501, [{"connection", "close"}], [], CState};
+		Reply ->
+			Reply
+	end.
 
 handle_cb_ret(Vsn, {reply, Status, Headers0, Body, CState}) ->
 	Headers1 = case gen_httpd_util:header_exists("content-length", Headers0) of
