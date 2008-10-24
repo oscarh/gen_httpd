@@ -28,24 +28,30 @@ pipeline_controller(Callback, CState, Socket, Timeout, Pipeline) ->
 	pipeline_controller(Callback, CState, Socket, Info, Reader, Queue).
 
 pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
-	receive
+	QueueX = receive
 		{request, Request} ->
 			Queue1 = pipeline_request(Callback, CState, Request, Info, Queue0),
 			case gen_httpd_pipeline_queue:is_full(Queue1) of
 				false -> Reader ! next;
 				true  -> ok
 			end,
-			pipeline_controller(Callback, CState, Socket, Info, Reader, Queue1);
+			Queue1;
 		{response, Id, Response} ->
 			Queue1 = pipeline_response(Id, Response, Socket, Queue0),
 			case gen_httpd_pipeline_queue:is_full(Queue1) of
 				false -> Reader ! next;
 				true  -> ok
 			end,
-			pipeline_controller(Callback, CState, Socket, Info, Reader, Queue1);
+			Queue1;
 		{error, Reason} ->
-			% FIXME Deal with errors from the pipline reader.
-			exit(Reason);
+			Id = gen_httpd_pipeline_queue:next_id(Queue0),
+			Response = bad_request(),
+			Queue1 = pipeline_response(Id, Response, Socket, Queue0),
+			case gen_httpd_pipeline_queue:is_full(Queue1) of
+				false -> Reader ! next;
+				true  -> ok
+			end,
+			Queue1;
 		{'EXIT', Reader, Reason} ->
 			Callback:terminate(Reason, CState),
 			gen_tcpd:close(Socket),
@@ -59,9 +65,10 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 			error_logger:error_report(Report),
 			Response = internal_error("HTTP/1.1"),
 			Id = gen_httpd_pipeline_queue:id(Pid, Queue0),
-			Queue1 = pipeline_response(Id, Response, Socket, Queue0),
-			pipeline_controller(Callback, CState, Socket, Info, Reader, Queue1)
-	end.
+			pipeline_response(Id, Response, Socket, Queue0),
+			
+	end,
+	pipeline_controller(Callback, CState, Socket, Info, Reader, QueueX).
 
 pipeline_request(Callback, CState, Request, Info, Queue0) ->
 	Id = gen_httpd_pipeline_queue:next_id(Queue0),
