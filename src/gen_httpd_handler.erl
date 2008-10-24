@@ -316,7 +316,7 @@ handle_upload(Socket, Hdrs, Timeout) ->
 				{'EXIT', _} ->
 					{ok, <<"">>};
 				Length ->
-					gen_tcpd:setopts(Socket, [{package, raw}]),
+					gen_tcpd:setopts(Socket, [{package, raw}, binary]),
 					gen_tcpd:recv(Socket, Length, Timeout)
 			end
 	end.
