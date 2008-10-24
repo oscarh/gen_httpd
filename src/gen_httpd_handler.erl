@@ -43,7 +43,7 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 				true  -> ok
 			end,
 			Queue1;
-		{error, Reason} ->
+		{error, bad_request} ->
 			Id = gen_httpd_pipeline_queue:next_id(Queue0),
 			Response = bad_request(),
 			Queue1 = pipeline_response(Id, Response, Socket, Queue0),
@@ -52,6 +52,9 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 				true  -> ok
 			end,
 			Queue1;
+		{error, Reason} ->
+			Callback:terminate(Reason, CState),
+			exit(Reason);
 		{'EXIT', Reader, Reason} ->
 			Callback:terminate(Reason, CState),
 			gen_tcpd:close(Socket),
@@ -65,8 +68,7 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 			error_logger:error_report(Report),
 			Response = internal_error("HTTP/1.1"),
 			Id = gen_httpd_pipeline_queue:id(Pid, Queue0),
-			pipeline_response(Id, Response, Socket, Queue0),
-			
+			pipeline_response(Id, Response, Socket, Queue0)
 	end,
 	pipeline_controller(Callback, CState, Socket, Info, Reader, QueueX).
 
@@ -131,7 +133,7 @@ read_requests(Callback, CState0, Socket, Timeout, Buff0) ->
 					gen_tcpd:send(Socket, Response),
 					exit(Reason)
 			end;
-		{error, {bad_request, _} = Reason} ->
+		{error, bad_request = Reason} ->
 			Callback:terminate(Reason, CState0),
 			Response = bad_request(),
 			gen_tcpd:send(Socket, Response),
@@ -154,7 +156,7 @@ receive_loop(Socket, Timeout, Buff0) ->
 					RTime = Timeout - timer:now_diff(now(), Start) div 1000,
 					receive_loop(Socket, RTime, Buff0 ++ Packet);
 				{'EXIT', _} ->
-					{error, {bad_request, Packet}};
+					{error, bad_request};
 				{{"POST", URI, Vsn, Hdrs}, Buff1} ->
 					RTime = Timeout - timer:now_diff(now(), Start) div 1000,
 					case handle_upload(Socket, Buff1, Hdrs, RTime) of
