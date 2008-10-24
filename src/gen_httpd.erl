@@ -138,7 +138,6 @@ wait_for_socket(State) ->
 		_                -> ok
 	end.
 
-
 validate_sock_opts([{active, _} = O | _]) ->
 	exit({bad_socket_option, O});
 validate_sock_opts([binary = O | _]) ->
