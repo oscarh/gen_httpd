@@ -10,9 +10,9 @@ new(Length) when Length > 1 ->
 next_id({_, Tail, _}) ->
 	Tail.
 
-push(Pid, {Head, Tail, Elements}) ->
+push(Ref, {Head, Tail, Elements}) ->
 	NextTail = if Tail =:= size(Elements) -> 1; true -> Tail + 1 end,
-	{Head, NextTail, setelement(Tail, Elements, Pid)}.
+	{Head, NextTail, setelement(Tail, Elements, Ref)}.
 
 response(Head, Response, {Head, Tail, Elements0}) ->
 	NextHead = ?NEXT(Head, Elements0),
@@ -22,8 +22,8 @@ response(Head, Response, {Head, Tail, Elements0}) ->
 response(N, Response, {Head, Tail, Elements}) ->
 	{[], {Head, Tail, setelement(N, Elements, {response, Response})}}.
 
-id(Pid, {_, _, Elements}) ->
-	id(Pid, Elements, lists:seq(1, size(Elements))).
+id(Ref, {_, _, Elements}) ->
+	id(Ref, Elements, lists:seq(1, size(Elements))).
 
 is_full({N, N, Elements}) ->
 	element(N, Elements) =/= nil;
@@ -39,8 +39,8 @@ responses({N, Tail, Elements0}, Acc) ->
 			{lists:reverse(Acc), {N, Tail, Elements0}}
 	end.
 
-id(Pid, Elements, [N | T]) ->
+id(Ref, Elements, [N | T]) ->
 	case element(N, Elements) of
-		Pid -> N;
-		_   -> id(Pid, Elements, T)
+		Ref -> N;
+		_   -> id(Ref, Elements, T)
 	end.

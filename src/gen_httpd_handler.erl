@@ -38,20 +38,26 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 			Queue1;
 		{response, Id, Response} ->
 			Queue1 = pipeline_response(Id, Response, Socket, Queue0),
-			case gen_httpd_pipeline_queue:is_full(Queue1) of
-				false -> Reader ! next;
-				true  -> ok
+			case gen_httpd_pipeline_queue:is_full(Queue0) of
+				true -> 
+					case gen_httpd_pipeline_queue:is_full(Queue1) of
+						false -> Reader ! next;
+						true  -> ok
+					end;
+				false ->
+					ok % Already waiting for request.
 			end,
 			Queue1;
 		{error, bad_request} ->
+			Response = bad_request(false),
 			Id = gen_httpd_pipeline_queue:next_id(Queue0),
-			Response = bad_request(),
-			Queue1 = pipeline_response(Id, Response, Socket, Queue0),
-			case gen_httpd_pipeline_queue:is_full(Queue1) of
+			Queue1 = gen_httpd_pipeline_queue:push(bad_request, Queue0),
+			Queue2 = pipeline_response(Id, Response, Socket, Queue1),
+			case gen_httpd_pipeline_queue:is_full(Queue2) of
 				false -> Reader ! next;
 				true  -> ok
 			end,
-			Queue1;
+			Queue2;
 		{error, Reason} ->
 			Callback:terminate(Reason, CState),
 			exit(Reason);
@@ -135,7 +141,7 @@ read_requests(Callback, CState0, Socket, Timeout, Buff0) ->
 			end;
 		{error, bad_request = Reason} ->
 			Callback:terminate(Reason, CState0),
-			Response = bad_request(),
+			Response = bad_request(true),
 			gen_tcpd:send(Socket, Response),
 			gen_tcpd:close(Socket),
 			exit(Reason);
@@ -284,8 +290,11 @@ internal_error(Version) ->
 	Headers = [{"connection", "close"}],
 	[status_line(Version, 500), format_headers(Headers)].
 
-bad_request() ->
-	Headers = [{"connection", "close"}],
+bad_request(true) ->
+	bad_request([{"connection", "close"}]);
+bad_request(false) ->
+	bad_request([]);
+bad_request(Headers) ->
 	[status_line("HTTP/1.1", 400), format_headers(Headers)].
 
 reason(200) -> "OK";
