@@ -25,7 +25,7 @@ start_link(Callback, CallbackArgs, Port, Timeout, SockOpts, SSL, Options) ->
 
 init([Callback, CallbackArgs, Timeout, Options]) ->
 	process_flag(trap_exit, true),
-	Pipeline = proplists:get_value(pipeline, Options, 0),
+	Pipeline = proplists:get_value(concurrent_pipeline, Options, 1),
 	State = #state{
 		callback = Callback,
 		callback_args = CallbackArgs,
@@ -82,7 +82,7 @@ validate_sock_opts([_ | T]) ->
 validate_sock_opts([]) ->
 	ok.
 
-validate_options([{pipeline, N}| T]) when is_integer(N) ->
+validate_options([{concurrent_pipeline, N}| T]) when is_integer(N) ->
 	validate_options(T);
 validate_options([O | _]) ->
 	exit({bad_option, O});
