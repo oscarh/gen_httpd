@@ -234,7 +234,9 @@ http_packet(Socket, Timeout, Method0, URI0, Vsn0, Hdrs0) ->
 		{ok, http_eoh} ->
 			{ok, {Method0, URI0, Vsn0, Hdrs0}};
 		{error, {http_error, _}} ->
-			{error, bad_request}
+			{error, bad_request};
+		{error, Reason} ->
+			{error, Reason}
 	end.
 
 handle_async_request(Pipeline, Id, Callback, CState, Info, Request) ->
