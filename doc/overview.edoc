@@ -1,0 +1,19 @@
+@copyright 2008 Martin Carlson, Oscar Hellström
+@author Martin Carlson <martin@erlang-consulting.com>
+@author Oscar Hellström <oscar@hellstrom.st> [http://oscar.hellstrom.st]
+@version {@version}, {@date}, {@time}
+
+@doc The gen_httpd behaviour implements a generic HTTP server interface.
+Since it's an OTP behaviour it fits well under a supervisor, which makes it
+very easy to embed in any application. gen_httpd tries to do as little as
+possible while still providing enough functionality to deal with the HTTP
+protocol, concurrency etc. 
+
+HTTP version 1.1 and 1.0 are supported. Persintant connections are controlled
+by the headers included in the response from the client. The default
+behaviour reads a request from a socket, wait for the application to return
+a response and then read the next request. It is also possibe to use a
+concurrent pipeline where a process is spawed for each request received on
+the socket.  The responses will be serialised by gen_httpd to the client.
+
+== Example ==
