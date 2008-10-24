@@ -52,7 +52,7 @@ next_id({_, Tail, _}) ->
 	Tail.
 
 push(Ref, {Head, Tail, Elements}) ->
-	NextTail = if Tail =:= size(Elements) -> 1; true -> Tail + 1 end,
+	NextTail = ?NEXT(Tail, Elements),
 	{Head, NextTail, setelement(Tail, Elements, Ref)}.
 
 response(Head, Response, {Head, Tail, Elements0}) ->
