@@ -34,6 +34,7 @@
 %%% @author Martin Carlson <martin@erlang-consulting.com>
 %%% @author Oscar Hellström <oscar@hellstrom.st> [http://oscar.hellstrom.st]
 %%% @version {@version}, {@date}, {@time}
+%%% @private
 %%% @doc
 %%% 
 %%% @end

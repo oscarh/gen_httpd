@@ -27,9 +27,13 @@ VPATH = src:test:include:ebin
 
 all: depend $(APP) $(BEAMS) c_src
 
+doc: 
+	@echo [EDOC] gen_tcpd
+	@erl -noinput -eval 'edoc:application(gen_tcpd, "./", [{doc, "doc/"}])' -s erlang halt
+
 test: depend $(TEST_BEAMS)
 
-.PHONY: all test clean c_src
+.PHONY: all test clean c_src doc
 .SUFFIXES: .erl .beam .app.src .app
 
 clean: 

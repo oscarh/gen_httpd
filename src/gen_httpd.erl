@@ -35,7 +35,7 @@
 %%% @author Oscar Hellström <oscar@hellstrom.st> [http://oscar.hellstrom.st]
 %%% @version {@version}, {@date}, {@time}
 %%% @doc
-%%% 
+%%% The gen_httpd behaivour implements a generic HTTP server interface.
 %%% @end
 %%% ----------------------------------------------------------------------------
 -module(gen_httpd).
@@ -49,37 +49,63 @@
 
 -record(state, {callback, callback_args, timeout, pipeline}).
 
-start_link(Callback, CallbackArgs, Port, Timeout, SockOpts, Options) ->
+%% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
+%%                               {ok, Pid}
+%% Callback = atom()
+%% CallbackArg = term()
+%% Port = integer()
+%% Timeout = integer()
+%% SockOpts = [SockOpt]
+%% Options = [Opt]
+%% Pid = pid()
+%% @doc Starts a gen_httpd process and links to it.
+%% This function should normally be called from a supervisor.
+start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
 	validate_sock_opts(SockOpts),
 	validate_options(Options),
 	Opts = [{active, false} | SockOpts],
-	InitArgs = [Callback, CallbackArgs, Timeout, Options],
+	InitArgs = [Callback, CallbackArg, Timeout, Options],
 	gen_tcpd:start_link(?MODULE, InitArgs, tcp, Port, Opts).
 	
-start_link(Callback, CallbackArgs, Port, Timeout, SockOpts, SSL, Options) ->
+%% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts,
+%%                  SSL, Options) -> {ok, Pid}
+%% Callback = atom()
+%% CallbackArg = term()
+%% Port = integer()
+%% Timeout = integer()
+%% SockOpts = [SockOpt]
+%% SSL = [SSLOpt]
+%% Options = [Opt]
+%% Pid = pid()
+%% @doc Starts a gen_httpd process with an SSL backend and links to it.
+%% This function should normally be called from a supervisor.
+start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSL, Options) ->
 	validate_sock_opts(SockOpts),
 	validate_options(Options),
 	Opts = [{active, false} | SockOpts] ++ SSL,
-	InitArgs = [Callback, CallbackArgs, Timeout, Options],
+	InitArgs = [Callback, CallbackArg, Timeout, Options],
 	gen_tcpd:start_link(?MODULE, InitArgs, ssl, Port, Opts).
 
-init([Callback, CallbackArgs, Timeout, Options]) ->
+%% @hidden
+init([Callback, CallbackArg, Timeout, Options]) ->
 	process_flag(trap_exit, true),
 	Pipeline = proplists:get_value(concurrent_pipeline, Options, 1),
 	State = #state{
 		callback = Callback,
-		callback_args = CallbackArgs,
+		callback_args = CallbackArg,
 		timeout = Timeout,
 		pipeline = Pipeline
 	},
 	{ok, State}.
 
+%% @hidden
 handle_connection(Socket, State) ->
 	Pid = spawn_link(?MODULE, wait_for_socket, [State]),
 	ok = gen_tcpd:controlling_process(Socket, Pid),
 	Pid ! {socket, Socket},
 	{noreply, State}.
 
+%% @hidden
 handle_info({'EXIT', _, closed}, State) ->
 	{noreply, State};
 handle_info({'EXIT', _, tcp_timeout}, State) ->
@@ -93,9 +119,11 @@ handle_info({'EXIT', Pid, Reason}, State) ->
 handle_info(_, State) ->
 	{noreply, State}.
 
+%% @hidden
 terminate(_Reason, _State) ->
 	ok.
 
+%% @private
 wait_for_socket(State) ->
 	receive
 		{socket, Socket} ->
@@ -129,6 +157,7 @@ validate_options([O | _]) ->
 validate_options([]) ->
 	ok.
 
+%% @hidden
 behaviour_info(callbacks) ->
 	[
 		{init,1},
