@@ -161,9 +161,49 @@ bad_request_resp(Headers) ->
 	[status_line("HTTP/1.1", 400), format_headers(Headers)].
 
 %%% @private
+reason(100) -> "Continue";
+reason(101) -> "Switching Protocols";
+
 reason(200) -> "OK";
+reason(201) -> "Created";
+reason(202) -> "Accepted";
+reason(203) -> "Non-Authoritative Information";
+reason(204) -> "No Content";
+reason(206) -> "Partial Content";
+
+reason(300) -> "Multiple Choices";
+reason(301) -> "Moved Permanently";
+reason(302) -> "Found";
+reason(303) -> "See Other";
+reason(304) -> "Not Modified";
+reason(305) -> "Use Proxy";
+reason(307) -> "Temporary Redirect";
+
 reason(400) -> "Bad Request";
-reason(500) -> "Internal server error".
+reason(401) -> "Unauthorized";
+reason(402) -> "Payment Required";
+reason(403) -> "Forbidden";
+reason(404) -> "Not Found";
+reason(405) -> "Method Not Allowed";
+reason(406) -> "Not Acceptable";
+reason(407) -> "Proxy Authentication Required";
+reason(408) -> "Request Time-Out";
+reason(409) -> "Conflict";
+reason(410) -> "Gone";
+reason(411) -> "Length Required";
+reason(412) -> "Precondition Failed";
+reason(413) -> "Request Entitiy Too Large";
+reason(414) -> "Request-URI Too Large";
+reason(415) -> "Unsupported Media Type";
+reason(416) -> "Requested range tot satisfiable";
+reason(417) -> "Expectation Failed";
+
+reason(500) -> "Internal server error";
+reason(501) -> "Not Implemented";
+reason(502) -> "Bad Gateway";
+reason(503) -> "Service Unavailable";
+reason(504) -> "Gateway Time-Out";
+reason(505) -> "HTTP Version not supported".
 
 %%% @private
 format_headers(Headers) ->
