@@ -232,7 +232,9 @@ http_packet(Socket, Timeout, Method0, URI0, Vsn0, Hdrs0) ->
 			Hdrs1 = [{Name, Value} | Hdrs0],
 			http_packet(Socket, RTime, Method0, URI0, Vsn0, Hdrs1);
 		{ok, http_eoh} ->
-			{ok, {Method0, URI0, Vsn0, Hdrs0}}
+			{ok, {Method0, URI0, Vsn0, Hdrs0}};
+		{error, {http_error, _}} ->
+			{error, bad_request}
 	end.
 
 handle_async_request(Pipeline, Id, Callback, CState, Info, Request) ->

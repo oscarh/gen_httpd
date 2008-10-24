@@ -158,7 +158,7 @@ bad_request_resp(true) ->
 bad_request_resp(false) ->
 	bad_request_resp([]);
 bad_request_resp(Headers) ->
-	[status_line("HTTP/1.1", 400), format_headers(Headers)].
+	[status_line({1, 1}, 400), format_headers(Headers)].
 
 %%% @private
 reason(100) -> "Continue";
