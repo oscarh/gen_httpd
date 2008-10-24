@@ -28,8 +28,8 @@ VPATH = src:test:include:ebin
 all: depend $(APP) $(BEAMS) c_src
 
 doc: 
-	@echo [EDOC] gen_tcpd
-	@erl -noinput -eval 'edoc:application(gen_tcpd, "./", [{doc, "doc/"}])' -s erlang halt
+	@echo [EDOC] gen_httpd
+	@erl -noinput -eval 'edoc:application(gen_httpd, "./", [{doc, "doc/"}])' -s erlang halt
 
 test: depend $(TEST_BEAMS)
 

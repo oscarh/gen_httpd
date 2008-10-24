@@ -36,6 +36,186 @@
 %%% @version {@version}, {@date}, {@time}
 %%% @doc
 %%% The gen_httpd behaivour implements a generic HTTP server interface.
+%%%
+%%% There are currently two modes of operation sequential processing of
+%%% requests and concurrent pipeliens. With the sequential processsing a
+%%% each request have to be processed and a response must be returned before
+%%% the next request can be processed, even if the client have pipelined
+%%% several requests. In the concurrent pipeline mode the server will read
+%%% as many requests as allowed and process them in paralell.
+%%%
+%%% <pre>
+%%% gen_httpd module            Callback module
+%%% ---------------_            ---------------
+%%% gen_httpd:start_link -----> Module:init/1
+%%% -                    -----> Module:handle_get/5
+%%% -                    -----> Module:handle_put/6
+%%% -                    -----> Module:handle_head/5
+%%% -                    -----> Module:handle_post/6
+%%% -                    -----> Module:handle_options/5
+%%% -                    -----> Module:handle_trace/5
+%%% -                    -----> Module:handle_connect/6
+%%% -                    -----> Module:terminate/2
+%%% </pre>
+%%%
+%%% == Concurrent pipeline mode ==
+%%% If a client is pipelining requests the server can process them in
+%%% paralell as long as the responses are serialised. There is a bit of
+%%% overhead on the server if this mode is selected due to the serialisation
+%%% of responses. Two processes will be created for each client connection,
+%%% and each request will processed in an independent process.
+%%%
+%%% Since responses must be returned in the same order as the requests are
+%%% received the responses are serialised and if an early request takes a long
+%%% time to return, the responses will wait in a response queue and the
+%%% pipeline is blocked.
+%%%
+%%% == Callbacks ==
+%%% <pre>
+%%% Module:init(Arg) -> Result
+%%%     Types Args = term()
+%%%           Result = {ok, State} | {stop, Reason}
+%%% </pre>
+%%% After {@link start_link/6} or {@link start_link/7} has been called this
+%%% function is called by the new to initialise a state. If the the
+%%% initialisation is successful the function should return
+%%% <code>{ok, State}</code> where <code>State</code> is the state which
+%%% will be passed to the client in in the next callback.
+%%% <code>Arg</code> is the <code>CallbackArg</code> passed
+%%% to {@link start_link/6} or {@link start_link/7}.
+%%%
+%%% <pre>
+%%% Module:handle_get(URI, Vsn, Headers, ConnInfo, State) -> Result
+%%%     Types URI = string() 
+%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Headers = [{Name, Value}]
+%%%           Name = Value = string()
+%%%           ConnInfo = #gen_httpd_conn{}
+%%%           State = term()
+%%%           Result = {reply, Status, Headers, Body, State}
+%%%           Status = StatusCode | {StatusCode, Description}
+%%%           StatusCode = integer()
+%%%           Description = string()
+%%%           Body = io_data()
+%%% </pre>
+%%% Handle a HTTP GET request.
+%%%
+%%% <pre>
+%%% Module:handle_put(URI, Vsn, Headers, RequestBody, ConnInfo, State) -> Result
+%%%     Types URI = string() 
+%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Headers = [{Name, Value}]
+%%%           RequestBody = string()
+%%%           Name = Value = string()
+%%%           ConnInfo = #gen_httpd_conn{}
+%%%           State = term()
+%%%           Result = {reply, Status, Headers, Body, State}
+%%%           Status = StatusCode | {StatusCode, Description}
+%%%           StatusCode = integer()
+%%%           Description = string()
+%%%           Body = io_data()
+%%% </pre>
+%%% Handle a HTTP PUT request.
+%%%
+%%% <pre>
+%%% Module:handle_head(URI, Vsn, Headers, ConnInfo, State) -> Result
+%%%     Types URI = string() 
+%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Headers = [{Name, Value}]
+%%%           Name = Value = string()
+%%%           ConnInfo = #gen_httpd_conn{}
+%%%           State = term()
+%%%           Result = {reply, Status, Headers, Body, State}
+%%%           Status = StatusCode | {StatusCode, Description}
+%%%           StatusCode = integer()
+%%%           Description = string()
+%%%           Body = io_data()
+%%% </pre>
+%%% Handle a HTTP HEAD request.
+%%%
+%%% <pre>
+%%% Module:handle_post(URI, Vsn, Headers, RequestBody, ConnInfo, State) ->
+%%%                                                                  Result
+%%%     Types URI = string() 
+%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Headers = [{Name, Value}]
+%%%           Name = Value = string()
+%%%           RequestBody = string()
+%%%           ConnInfo = #gen_httpd_conn{}
+%%%           State = term()
+%%%           Result = {reply, Status, Headers, Body, State}
+%%%           Status = StatusCode | {StatusCode, Description}
+%%%           StatusCode = integer()
+%%%           Description = string()
+%%%           Body = io_data()
+%%% </pre>
+%%% Handle a HTTP POST request.
+%%%
+%%% <pre>
+%%% Module:handle_options(URI, Vsn, Headers, ConnInfo, State) -> Result
+%%%     Types URI = string() 
+%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Headers = [{Name, Value}]
+%%%           Name = Value = string()
+%%%           ConnInfo = #gen_httpd_conn{}
+%%%           State = term()
+%%%           Result = {reply, Status, Headers, Body, State}
+%%%           Status = StatusCode | {StatusCode, Description}
+%%%           StatusCode = integer()
+%%%           Description = string()
+%%%           Body = io_data()
+%%% </pre>
+%%% Handle a HTTP OPTIONS request.
+%%%
+%%% <pre>
+%%% Module:handle_trace(URI, Vsn, Headers, ConnInfo, State) -> Result
+%%%     Types URI = string() 
+%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Headers = [{Name, Value}]
+%%%           Name = Value = string()
+%%%           ConnInfo = #gen_httpd_conn{}
+%%%           State = term()
+%%%           Result = {reply, Status, Headers, Body, State}
+%%%           Status = StatusCode | {StatusCode, Description}
+%%%           StatusCode = integer()
+%%%           Description = string()
+%%%           Body = io_data()
+%%% </pre>
+%%% Handle a HTTP TRACE request.
+%%%
+%%% <pre>
+%%% Module:handle_connect(URI, Vsn, Headers, RequestBody, ConnInfo, State) ->
+%%%                                                                    Result
+%%%     Types URI = string() 
+%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Headers = [{Name, Value}]
+%%%           Name = Value = string()
+%%%           RequestBody = string()
+%%%           ConnInfo = #gen_httpd_conn{}
+%%%           State = term()
+%%%           Result = {reply, Status, Headers, Body, State}
+%%%           Status = StatusCode | {StatusCode, Description}
+%%%           StatusCode = integer()
+%%%           Description = string()
+%%%           Body = io_data()
+%%% </pre>
+%%% Handle a HTTP CONNECT request.
+%%%
+%%% <pre>
+%%% Module:terminate(Reason, State) -> void()
+%%%     Types Reason = State = term()
+%%% </pre>
+%%%
+%%% === Record in ConnInfo ===
+%%% <pre>
+%%% #gen_httpd_conn{
+%%%     schema         = http | https,
+%%%     remote_address = ip_address(),
+%%%     remote_port    = integer(),
+%%%     local_address  = ip_address(),
+%%%     local_port     = integer()
+%%% }
+%%% </pre>
 %%% @end
 %%% ----------------------------------------------------------------------------
 -module(gen_httpd).
@@ -57,8 +237,18 @@
 %% Timeout = integer()
 %% SockOpts = [SockOpt]
 %% Options = [Opt]
+%% Opt = {concurrent_pipeline, Length::integer()}
 %% Pid = pid()
 %% @doc Starts a gen_httpd process and links to it.
+%% The process created will call <code>Callback:init/1</code> with
+%% <code>CallbackArg</code> to initialise an internal state.
+%% The HTTP server will listen on port <code>Port</code> and keep persistent
+%% connections open for <code>Timeout</code> milliseconds.
+%%
+%% For <code>SockOpts</code>, see backend module
+%% <a
+%% href="http://www.erlang.org/doc/man/gen_tcp.html"><code>gen_tcp</code></a>.
+%%
 %% This function should normally be called from a supervisor.
 start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
 	validate_sock_opts(SockOpts),
@@ -78,6 +268,10 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
 %% Options = [Opt]
 %% Pid = pid()
 %% @doc Starts a gen_httpd process with an SSL backend and links to it.
+%%
+%% For <code>SockOpts</code> and <code>SSLOpts</code>, see backend module
+%% <a href="http://www.erlang.org/doc/man/ssl.html"><code>ssl</code></a>.
+%%
 %% This function should normally be called from a supervisor.
 start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSL, Options) ->
 	validate_sock_opts(SockOpts),

@@ -17,3 +17,59 @@ concurrent pipeline where a process is spawed for each request received on
 the socket.  The responses will be serialised by gen_httpd to the client.
 
 == Example ==
+<pre>
+-module(webserver).
+-behaviour(gen_httpd).
+
+-export([start_link/0]).
+-export([
+		init/1,
+		handle_get/5,
+		handle_put/6,
+		handle_head/5,
+		handle_post/6,
+		handle_options/5,
+		handle_trace/5,
+		handle_connect/6,
+		terminate/2
+	]).
+
+start_link() ->
+	gen_httpd:start_link(?MODULE, [], 9999, 300000, [], []).
+
+init(_Arg) ->
+	{ok, nil}.
+
+handle_get(_URI, _Vsn, _Headers, _ConnInfo, State) ->
+	ResponseHeaders = [
+		{"Server", "gen_httpd example server"},
+		{"Content-Type", "text/html; charset=UTF-8"}
+	],
+	Body =
+		"&lt;html&gt;"
+		"&lt;head&gt;&lt;title&gt;gen_httpd&lt;/title&gt;&lt;/head&gt;"
+		"&lt;body&gt;Hello World!&lt;/body&gt;"
+		"&lt;/html&gt;",
+	{reply, 200, ResponseHeaders, Body, State}.
+
+handle_put(_URI, _Vsn, _Headers, _Body, _ConnInfo, State) ->
+	{reply, 405, [], [], State}.
+
+handle_head(_URI, _Vsn, _Headers, _ConnInfo, State) ->
+	{reply, 405, [], [], State}.
+
+handle_post(_URI, _Vsn, _Headers, _Body, _ConnInfo, State) ->
+	{reply, 405, [], [], State}.
+
+handle_options(_URI, _Vsn, _Headers, _ConnInfo, State) ->
+	{reply, 405, [], [], State}.
+
+handle_trace(_URI, _Vsn, _Headers, _ConnInfo, State) ->
+	{reply, 405, [], [], State}.
+
+handle_connect(_URI, _Vsn, _Headers, _ConnInfo, _Body, State) ->
+	{reply, 405, [], [], State}.
+
+terminate(_, _) ->
+	ok.
+</pre>
