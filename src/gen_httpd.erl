@@ -46,7 +46,7 @@
 %%%
 %%% <pre>
 %%% gen_httpd module            Callback module
-%%% ---------------_            ---------------
+%%% ----------------            ---------------
 %%% gen_httpd:start_link -----> Module:init/1
 %%% -                    -----> Module:handle_get/5
 %%% -                    -----> Module:handle_put/6
