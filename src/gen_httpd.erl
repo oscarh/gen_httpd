@@ -122,7 +122,8 @@
 %%% <pre>
 %%% Module:handle_head(URI, Vsn, Headers, ConnInfo, State) -> Result
 %%%     Types URI = string() 
-%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Vsn = {Major, Minor}
+%%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
 %%%           Name = Value = string()
 %%%           ConnInfo = #gen_httpd_conn{}
@@ -139,7 +140,8 @@
 %%% Module:handle_post(URI, Vsn, Headers, RequestBody, ConnInfo, State) ->
 %%%                                                                  Result
 %%%     Types URI = string() 
-%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Vsn = {Major, Minor}
+%%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
 %%%           Name = Value = string()
 %%%           RequestBody = string()
@@ -156,7 +158,8 @@
 %%% <pre>
 %%% Module:handle_options(URI, Vsn, Headers, ConnInfo, State) -> Result
 %%%     Types URI = string() 
-%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Vsn = {Major, Minor}
+%%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
 %%%           Name = Value = string()
 %%%           ConnInfo = #gen_httpd_conn{}
@@ -172,7 +175,8 @@
 %%% <pre>
 %%% Module:handle_trace(URI, Vsn, Headers, ConnInfo, State) -> Result
 %%%     Types URI = string() 
-%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Vsn = {Major, Minor}
+%%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
 %%%           Name = Value = string()
 %%%           ConnInfo = #gen_httpd_conn{}
@@ -189,7 +193,8 @@
 %%% Module:handle_connect(URI, Vsn, Headers, RequestBody, ConnInfo, State) ->
 %%%                                                                    Result
 %%%     Types URI = string() 
-%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Vsn = {Major, Minor}
+%%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
 %%%           Name = Value = string()
 %%%           RequestBody = string()
@@ -255,7 +260,7 @@
 start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
 	validate_sock_opts(SockOpts),
 	validate_options(Options),
-	Opts = [{active, false} | SockOpts],
+	Opts = [{active, false}, binary | SockOpts],
 	InitArgs = [Callback, CallbackArg, Timeout, Options],
 	gen_tcpd:start_link(?MODULE, InitArgs, tcp, Port, Opts).
 	
@@ -278,7 +283,7 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
 start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSL, Options) ->
 	validate_sock_opts(SockOpts),
 	validate_options(Options),
-	Opts = [{active, false} | SockOpts] ++ SSL,
+	Opts = [{active, false}, binary | SockOpts] ++ SSL,
 	InitArgs = [Callback, CallbackArg, Timeout, Options],
 	gen_tcpd:start_link(?MODULE, InitArgs, ssl, Port, Opts).
 
