@@ -4,8 +4,6 @@
 
 -export([read_pipeline/4, handle_async_request/6]).
 
--import(gen_httpd_util, [header_value/2, header_value/3, header_exists/2]).
-
 -include("gen_httpd.hrl").
 
 start(Callback, CallbackArgs, Socket, Timeout, Pipeline) ->
@@ -49,7 +47,7 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 			end,
 			Queue1;
 		{error, bad_request} ->
-			Response = bad_request(false),
+			Response = gen_httpd_util:bad_request_resp(false),
 			Id = gen_httpd_pipeline_queue:next_id(Queue0),
 			Queue1 = gen_httpd_pipeline_queue:push(bad_request, Queue0),
 			Queue2 = pipeline_response(Id, Response, Socket, Queue1),
@@ -72,7 +70,7 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 				{reason, Reason}
 			],
 			error_logger:error_report(Report),
-			Response = internal_error("HTTP/1.1"),
+			Response = gen_httpd_util:internal_error_resp("HTTP/1.1"),
 			Id = gen_httpd_pipeline_queue:id(Pid, Queue0),
 			pipeline_response(Id, Response, Socket, Queue0)
 	end,
@@ -135,13 +133,14 @@ read_requests(Callback, CState0, Socket, Timeout, Buff0) ->
 						{reason, Reason}
 					],
 					error_logger:error_report(Report),
-					Response = internal_error(element(3, Request)),
+					Vsn = element(3, Request),
+					Response = gen_httpd_util:internal_error_resp(Vsn),
 					gen_tcpd:send(Socket, Response),
 					exit(Reason)
 			end;
 		{error, bad_request = Reason} ->
 			Callback:terminate(Reason, CState0),
-			Response = bad_request(true),
+			Response = gen_httpd_util:bad_request_resp(true),
 			gen_tcpd:send(Socket, Response),
 			gen_tcpd:close(Socket),
 			exit(Reason);
@@ -199,7 +198,7 @@ handle_async_request(Pipeline, Id, Callback, CState, Info, Request) ->
 handle_request(Callback, CState0, Info, {Method, URI, Vsn, Hdrs, Body}) ->
 	Ret = call_cb(Callback, CState0, Info, Method, URI, Vsn, Hdrs, Body),
 	{Response, CState1} = handle_cb_ret(Vsn, Ret),
-	Connection = header_value("connection", Hdrs, undefined),
+	Connection = gen_httpd_util:header_value("connection", Hdrs, undefined),
 	case {Vsn, string:to_lower(Connection)} of
 		{"HTTP/1.1", "close"} ->
 			{stop, normal, Response, CState1};
@@ -242,19 +241,24 @@ call_cb(Callback, CState, ConnInfo, "CONNECT", URI, Vsn, Hdrs, Body) ->
 	Callback:handle_connect(URI, Vsn, Hdrs, Body, ConnInfo, CState).
 
 handle_cb_ret(Vsn, {reply, Status, Headers0, Body, CState}) ->
-	Headers1 = case header_exists("content-length", Headers0) of
+	Headers1 = case gen_httpd_util:header_exists("content-length", Headers0) of
 		false ->
 			Length = iolist_size(Body),
 			[{"content-length", integer_to_list(Length)} | Headers0];
 		true ->
 			Headers0
 	end,
-	{[status_line(Vsn, Status), format_headers(Headers1), Body], CState};
+	Response = [
+		gen_httpd_util:status_line(Vsn, Status),
+		gen_httpd_util:format_headers(Headers1),
+		Body
+	],
+	{Response, CState};
 handle_cb_ret(_, Return) ->
 	exit({invalid_return_value, Return}).
 
 handle_upload(Socket, Buff0, Hdrs, Timeout) ->
-	case header_value("content-length", Hdrs) of
+	case gen_httpd_util:header_value("content-length", Hdrs) of
 		undefined ->
 			{[], Buff0};
 		ContentLength ->
@@ -285,28 +289,3 @@ get_body(Socket, Buff0, Length, Timeout) ->
 		BuffLength >= Length ->
 			{ok, lists:split(Length, Buff0)}
 	end.
-
-internal_error(Version) ->
-	Headers = [{"connection", "close"}],
-	[status_line(Version, 500), format_headers(Headers)].
-
-bad_request(true) ->
-	bad_request([{"connection", "close"}]);
-bad_request(false) ->
-	bad_request([]);
-bad_request(Headers) ->
-	[status_line("HTTP/1.1", 400), format_headers(Headers)].
-
-reason(200) -> "OK";
-reason(400) -> "Bad Request";
-reason(500) -> "Internal server error".
-
-status_line(Vsn, {Status, Reason}) ->
-	[Vsn, $\ , integer_to_list(Status), $\ , Reason, $\r, $\n];
-status_line(Vsn, Status) ->
-	status_line(Vsn, {Status, reason(Status)}).
-
-format_headers(Headers) ->
-	[lists:map(fun({Name, Value}) ->
-					[Name, $:, $\ , Value, $\r, $\n]
-			end, Headers), $\r, $\n].

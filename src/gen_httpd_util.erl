@@ -5,11 +5,12 @@
 		header_value/3,
 		header_exists/2,
 		update_header/3,
-		remove_header/2,
-		parse_query/1,
-		uri_encode/1,
-		uri_decode/1
+		remove_header/2
 	]).
+-export([parse_query/1, uri_encode/1, uri_decode/1]).
+-export([status_line/2, format_headers/1]).
+-export([internal_error_resp/1, bad_request_resp/1]).
+-export([reason/1]).
 
 -define(URI_ENCODE_ESCAPE,
 	[
@@ -105,6 +106,31 @@ uri_decode([H | Rest], Acc) ->
 	uri_decode(Rest, [H | Acc]);
 uri_decode([], Acc) ->
 	lists:reverse(Acc).
+
+internal_error_resp(Version) ->
+	Headers = [{"connection", "close"}],
+	[status_line(Version, 500), format_headers(Headers)].
+
+bad_request_resp(true) ->
+	bad_request_resp([{"connection", "close"}]);
+bad_request_resp(false) ->
+	bad_request_resp([]);
+bad_request_resp(Headers) ->
+	[status_line("HTTP/1.1", 400), format_headers(Headers)].
+
+reason(200) -> "OK";
+reason(400) -> "Bad Request";
+reason(500) -> "Internal server error".
+
+format_headers(Headers) ->
+	[lists:map(fun({Name, Value}) ->
+					[Name, $:, $\ , Value, $\r, $\n]
+			end, Headers), $\r, $\n].
+
+status_line(Vsn, {Status, Reason}) ->
+	[Vsn, $\ , integer_to_list(Status), $\ , Reason, $\r, $\n];
+status_line(Vsn, Status) ->
+	status_line(Vsn, {Status, reason(Status)}).
 
 char_to_hex(Char) ->
 	string:right(erlang:integer_to_list(Char, 16), 2, $0).
