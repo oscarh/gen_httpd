@@ -138,5 +138,6 @@ behaviour_info(callbacks) ->
 		{handle_post, 6},
 		{handle_options, 5},
 		{handle_trace, 5},
-		{handle_connect, 6}
+		{handle_connect, 6},
+		{terminate, 2}
 	].
