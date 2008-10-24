@@ -1,6 +1,11 @@
 -module(gen_httpd_util).
 
 -export([
+		header_value/2,
+		header_value/3,
+		header_exists/2,
+		update_header/3,
+		remove_header/2,
 		parse_query/1,
 		uri_encode/1,
 		uri_decode/1
@@ -15,6 +20,57 @@
 		20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 16#7f,
 		$ , $<, $>, $#, $%, $", ${, $}, $|, $\\, $^, $[, $], $`
 	]).
+
+header_value(Name, Headers) ->
+	header_value(Name, Headers, undefined).
+
+header_value(Name, [{Name, Value} | _], _) ->
+	Value;
+header_value(Name, [{N, Value} | T], Default) ->
+	case string:equal(Name, string:to_lower(N)) of
+		true  -> Value;
+		false -> header_value(Name, T, Default)
+	end;
+header_value(_, [], Default) ->
+	Default.
+
+header_exists(Name, [{Name, _} | _]) ->
+	true;
+header_exists(Name, [{N, _} | T]) ->
+	case string:equal(Name, string:to_lower(N)) of
+		true  -> true;
+		false -> header_exists(Name, T)
+	end;
+header_exists(_, []) ->
+	false.
+
+update_header(Name, Value, Headers) ->
+	update_header(Name, Value, Headers, []).
+
+update_header(Name, Value, [{Name, _} | T], Acc) ->
+	Acc ++ [{Name, Value}| T];
+update_header(Name, Value, [{N, _} = Header | T], Acc) ->
+	case string:equal(Name, string:to_lower(N)) of
+		true -> 
+			Acc ++ [{Name, Value}| T];
+		false ->
+			update_header(Name, Value, T, [Header | Acc])
+	end;
+update_header(Name, Value, [], Acc) ->
+	[{Name, Value} | Acc].
+
+remove_header(Name, Headers) ->
+	remove_header(Name, Headers, []).
+
+remove_header(Name, [{Name, _} | T], Acc) ->
+	Acc ++ T; 
+remove_header(Name, [{N, _} = Header | T], Acc) ->
+	case string:equal(Name, string:to_lower(N)) of
+		true -> 
+			Acc ++ T;
+		false ->
+			remove_header(Name, T, [Header | Acc])
+	end.
 
 parse_query(QueryStr) ->
 	case string:tokens(QueryStr, "&") of

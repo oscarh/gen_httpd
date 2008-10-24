@@ -3,18 +3,20 @@
 -export([parse/1]).
 
 parse(Request) ->
-	{Req, Rest0} = parse_request(Request),
-	{Headers, Body} = parse_headers(Rest0, []),
-	{Req, Headers, Body}.
+	{Method, URL, Vsn, Rest0} = parse_request(Request),
+	{Headers, Rest1} = parse_headers(Rest0, []),
+	{{Method, URL, Vsn, Headers}, Rest1}.
 
+parse_request("\r\n" ++ Rest) ->
+	parse_request(Rest);
 parse_request(Req) ->
 	{Meth, Rest0} = parse_method(Req, []),
 	{Path, Rest1} = parse_path(Rest0, []),
 	{VSN, Rest2} = parse_vsn(Rest1, []),
-	{{Meth, Path, VSN}, Rest2}.
+	{Meth, Path, VSN, Rest2}.
 
-parse_headers("\r\n" ++ Body, Headers) ->
-	{Headers, Body};
+parse_headers("\r\n" ++ Rest, Headers) ->
+	{Headers, Rest};
 parse_headers(Req, Headers) ->
 	{Key, Rest0} = parse_header_key(Req, []),
 	{Value, Rest1} = parse_header_value(Rest0, []),
