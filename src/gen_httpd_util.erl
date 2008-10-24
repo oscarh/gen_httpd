@@ -212,8 +212,11 @@ format_headers(Headers) ->
 			end, Headers), $\r, $\n].
 
 %%% @private
-status_line(Vsn, {Status, Reason}) ->
-	[Vsn, $\ , integer_to_list(Status), $\ , Reason, $\r, $\n];
+status_line({Major, Minor}, {Status, Reason}) ->
+	[
+		"HTTP/", integer_to_list(Major), ".", integer_to_list(Minor), $\ ,
+		integer_to_list(Status), $\ , Reason, $\r, $\n
+	];
 status_line(Vsn, Status) ->
 	status_line(Vsn, {Status, reason(Status)}).
 

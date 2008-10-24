@@ -87,7 +87,8 @@
 %%% <pre>
 %%% Module:handle_get(URI, Vsn, Headers, ConnInfo, State) -> Result
 %%%     Types URI = string() 
-%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Vsn = {Major, Minor}
+%%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
 %%%           Name = Value = string()
 %%%           ConnInfo = #gen_httpd_conn{}
@@ -103,7 +104,8 @@
 %%% <pre>
 %%% Module:handle_put(URI, Vsn, Headers, RequestBody, ConnInfo, State) -> Result
 %%%     Types URI = string() 
-%%%           Vsn = string() "HTTP/1.1" or "HTTP/1.0"
+%%%           Vsn = {Major, Minor}
+%%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
 %%%           RequestBody = string()
 %%%           Name = Value = string()

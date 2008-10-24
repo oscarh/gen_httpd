@@ -43,7 +43,7 @@
 
 -export([start/5]).
 
--export([read_pipeline/4, handle_async_request/6]).
+-export([read_pipeline/3, handle_async_request/6]).
 
 -include("gen_httpd.hrl").
 
@@ -56,12 +56,12 @@ start(Callback, CallbackArgs, Socket, Timeout, Pipeline) ->
 		Pipeline > 1 ->
 			pipeline_controller(Callback, CState, Socket, Timeout, Pipeline);
 		Pipeline < 2 ->
-			read_requests(Callback, CState, Socket, Timeout, [])
+			read_requests(Callback, CState, Socket, Timeout)
 	end.
 
 pipeline_controller(Callback, CState, Socket, Timeout, Pipeline) ->
 	Info = conn_info(Socket),
-	ReaderArgs = [self(), Socket, Timeout, []],
+	ReaderArgs = [self(), Socket, Timeout],
 	Reader = spawn_link(?MODULE, read_pipeline, ReaderArgs),
 	Queue = gen_httpd_pipeline_queue:new(Pipeline),
 	pipeline_controller(Callback, CState, Socket, Info, Reader, Queue).
@@ -111,7 +111,7 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 				{reason, Reason}
 			],
 			error_logger:error_report(Report),
-			Response = gen_httpd_util:internal_error_resp("HTTP/1.1"),
+			Response = gen_httpd_util:internal_error_resp({1, 1}),
 			Id = gen_httpd_pipeline_queue:id(Pid, Queue0),
 			pipeline_response(Id, Response, Socket, Queue0)
 	end,
@@ -137,28 +137,27 @@ pipeline_response(Id, Response, Socket, Queue0) ->
 	end,
 	Queue1.
 
-read_pipeline(Handler, Socket, Timeout, Buff0) ->
-	Buff2 = case receive_loop(Socket, Timeout, Buff0) of
-		{ok, Req, Buff1} ->
-			Handler ! {request, Req},
-			Buff1;
+read_pipeline(Handler, Socket, Timeout) ->
+	case receive_loop(Socket, Timeout) of
+		{ok, Req} ->
+			Handler ! {request, Req};
 		{error, Reason} ->
 			Handler ! {error, Reason},
 			[]
 	end,
 	receive
-		next -> read_pipeline(Handler, Socket, Timeout, Buff2);
+		next -> read_pipeline(Handler, Socket, Timeout);
 		stop -> exit(normal)
 	end.
 
-read_requests(Callback, CState0, Socket, Timeout, Buff0) ->
-	case receive_loop(Socket, Timeout, Buff0) of
-		{ok, Request, Buff1} ->
+read_requests(Callback, CState0, Socket, Timeout) ->
+	case receive_loop(Socket, Timeout) of
+		{ok, Request} ->
 			ConnInfo = conn_info(Socket),
 			case catch handle_request(Callback, CState0, ConnInfo, Request) of
 				{continue, Response, CState1} ->
 					ok = gen_tcpd:send(Socket, Response),
-					read_requests(Callback, CState1, Socket, Timeout, Buff1);
+					read_requests(Callback, CState1, Socket, Timeout);
 				{stop, Reason, Response, CState1} ->
 					ok = gen_tcpd:send(Socket, Response),
 					Callback:terminate(Reason, CState1),
@@ -191,41 +190,49 @@ read_requests(Callback, CState0, Socket, Timeout, Buff0) ->
 			exit(Reason)
 	end.
 
-receive_loop(_, Timeout, _) when Timeout < 0 ->
+receive_loop(_, Timeout) when Timeout < 1 ->
 	{error, tcp_timeout};
-receive_loop(Socket, Timeout, Buff0) ->
+receive_loop(Socket, Timeout) ->
 	Start = now(),
-	case gen_tcpd:recv(Socket, 0, Timeout) of
-		{ok, Packet} ->
-			case catch gen_httpd_parser:parse(Buff0 ++ Packet) of
-				{'EXIT', inclomplete} ->
+	ok = gen_tcpd:setopts(Socket, [{packet, http}]),
+	case http_packet(Socket, Timeout, nil, nil, nil, []) of
+		{ok, {Method, URI, Vsn, Hdrs}} ->
+			if
+				Method =:= 'POST'; Method =:= 'PUT' ->
 					RTime = Timeout - timer:now_diff(now(), Start) div 1000,
-					receive_loop(Socket, RTime, Buff0 ++ Packet);
-				{'EXIT', _} ->
-					{error, bad_request};
-				{{"POST", URI, Vsn, Hdrs}, Buff1} ->
-					RTime = Timeout - timer:now_diff(now(), Start) div 1000,
-					case handle_upload(Socket, Buff1, Hdrs, RTime) of
-						{ok, {Body, Buff2}} ->
-							{ok, {"POST", URI, Vsn, Hdrs, Body}, Buff2};
+					case handle_upload(Socket, Hdrs, RTime) of
+						{ok, Body} ->
+							{ok, {Method, URI, Vsn, Hdrs, Body}};
 						{error, Reason} ->
 							{error, Reason}
 					end;
-				{{"PUT", URI, Vsn, Hdrs}, Buff1} ->
-					RTime = Timeout - timer:now_diff(now(), Start) div 1000,
-					case handle_upload(Socket, Buff1, Hdrs, RTime) of
-						{ok, {Body, Buff2}} ->
-							{ok, {"PUT", URI, Vsn, Hdrs, Body}, Buff2};
-						{error, Reason} ->
-							{error, Reason}
-					end;
-				{{Method, URI, Vsn, Hdrs}, Buff1} ->
-					{ok, {Method, URI, Vsn, Hdrs, []}, Buff1}
+				true ->
+					{ok, {Method, URI, Vsn, Hdrs, nil}}
 			end;
 		{error, timeout} ->
 			{error, tcp_timeout};
 		{error, Reason} ->
 			{error, Reason}
+	end.
+
+http_packet(_, Timeout, _, _, _, _) when Timeout < 1 ->
+	{error, tcp_timeout};
+http_packet(Socket, Timeout, Method0, URI0, Vsn0, Hdrs0) ->
+	Start = now(),
+	case gen_tcpd:recv(Socket, 0, Timeout) of
+		{ok, {http_request, Method1, URI1, Vsn1}} ->
+			RTime = Timeout - timer:now_diff(now(), Start) div 1000,
+			http_packet(Socket, RTime, Method1, URI1, Vsn1, Hdrs0);
+		{ok, {http_header, _, Name, _, Value}} when is_atom(Name) ->
+			RTime = Timeout - timer:now_diff(now(), Start) div 1000,
+			Hdrs1 = [{atom_to_list(Name), Value} | Hdrs0],
+			http_packet(Socket, RTime, Method0, URI0, Vsn0, Hdrs1);
+		{ok, {http_header, _, Name, _, Value}} when is_list(Name) ->
+			RTime = Timeout - timer:now_diff(now(), Start) div 1000,
+			Hdrs1 = [{Name, Value} | Hdrs0],
+			http_packet(Socket, RTime, Method0, URI0, Vsn0, Hdrs1);
+		{ok, http_eoh} ->
+			{ok, {Method0, URI0, Vsn0, Hdrs0}}
 	end.
 
 handle_async_request(Pipeline, Id, Callback, CState, Info, Request) ->
@@ -241,11 +248,11 @@ handle_request(Callback, CState0, Info, {Method, URI, Vsn, Hdrs, Body}) ->
 	{Response, CState1} = handle_cb_ret(Vsn, Ret),
 	Connection = gen_httpd_util:header_value("connection", Hdrs, undefined),
 	case {Vsn, string:to_lower(Connection)} of
-		{"HTTP/1.1", "close"} ->
+		{{1, 1}, "close"} ->
 			{stop, normal, Response, CState1};
-		{"HTTP/1.1", _} ->
+		{{1, 1}, _} ->
 			{continue, Response, CState1};
-		{"HTTP/1.0", "keep-alive"} ->
+		{{1, 0}, "keep-alive"} ->
 			{continue, Response, CState1};
 		{_, _} ->
 			{stop, normal, Response, CState1}
@@ -266,17 +273,17 @@ conn_info(Socket) ->
 		local_port = LocalPort
 	}.
 
-call_cb(Callback, CState, ConnInfo, "GET", URI, Vsn, Hdrs, _) ->
+call_cb(Callback, CState, ConnInfo, 'GET', URI, Vsn, Hdrs, _) ->
 	Callback:handle_get(URI, Vsn, Hdrs, ConnInfo, CState);
-call_cb(Callback, CState, ConnInfo, "HEAD", URI, Vsn, Hdrs, _) ->
+call_cb(Callback, CState, ConnInfo, 'HEAD', URI, Vsn, Hdrs, _) ->
 	Callback:handle_head(URI, Vsn, Hdrs, ConnInfo, CState);
-call_cb(Callback, CState, ConnInfo, "OPTIONS", URI, Vsn, Hdrs, _) ->
+call_cb(Callback, CState, ConnInfo, 'OPTIONS', URI, Vsn, Hdrs, _) ->
 	Callback:handle_options(URI, Vsn, Hdrs, ConnInfo, CState);
-call_cb(Callback, CState, ConnInfo, "TRACE", URI, Vsn, Hdrs, _) ->
+call_cb(Callback, CState, ConnInfo, 'TRACE', URI, Vsn, Hdrs, _) ->
 	Callback:handle_trace(URI, Vsn, Hdrs, ConnInfo, CState);
-call_cb(Callback, CState, ConnInfo, "PUT", URI, Vsn, Hdrs, Body) ->
+call_cb(Callback, CState, ConnInfo, 'PUT', URI, Vsn, Hdrs, Body) ->
 	Callback:handle_put(URI, Vsn, Hdrs, Body, ConnInfo, CState);
-call_cb(Callback, CState, ConnInfo, "POST", URI, Vsn, Hdrs, Body) ->
+call_cb(Callback, CState, ConnInfo, 'POST', URI, Vsn, Hdrs, Body) ->
 	Callback:handle_post(URI, Vsn, Hdrs, Body, ConnInfo, CState);
 call_cb(Callback, CState, ConnInfo, "CONNECT", URI, Vsn, Hdrs, Body) ->
 	Callback:handle_connect(URI, Vsn, Hdrs, Body, ConnInfo, CState).
@@ -298,35 +305,16 @@ handle_cb_ret(Vsn, {reply, Status, Headers0, Body, CState}) ->
 handle_cb_ret(_, Return) ->
 	exit({invalid_return_value, Return}).
 
-handle_upload(Socket, Buff0, Hdrs, Timeout) ->
+handle_upload(Socket, Hdrs, Timeout) ->
 	case gen_httpd_util:header_value("content-length", Hdrs) of
 		undefined ->
-			{[], Buff0};
+			{ok, <<"">>}; % FIXME return need length error
 		ContentLength ->
 			case catch list_to_integer(ContentLength) of
 				{'EXIT', _} ->
-					{[], Buff0};
-				Value ->
-					get_body(Socket, Buff0, Value, Timeout)
+					{ok, <<"">>};
+				Length ->
+					gen_tcpd:setopts(Socket, [{package, raw}]),
+					gen_tcpd:recv(Socket, Length, Timeout)
 			end
-	end.
-
-get_body(_, _, _, Timeout) when Timeout < 0 ->
-	{error, Timeout};
-get_body(Socket, Buff0, Length, Timeout) ->
-	Start = now(),
-	BuffLength = length(Buff0),
-	if
-		BuffLength < Length ->
-			case gen_tcpd:recv(Socket, 0, Timeout) of
-				{ok, Packet} ->
-					RTime = Timeout - timer:now_diff(now(), Start) div 1000,
-					get_body(Socket, Buff0 ++ Packet, Length, RTime);
-				{error, timeout} ->
-					{error, tcp_timeout};
-				{error, Reason} ->
-					{error, Reason}
-			end;
-		BuffLength >= Length ->
-			{ok, lists:split(Length, Buff0)}
 	end.
