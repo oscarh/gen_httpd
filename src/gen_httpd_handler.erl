@@ -43,7 +43,7 @@
 
 -export([start/5]).
 
--export([read_pipeline/3, handle_async_request/6]).
+-export([read_pipeline/5, handle_async_request/6]).
 
 -include("gen_httpd.hrl").
 
@@ -61,7 +61,7 @@ start(Callback, CallbackArgs, Socket, Timeout, Pipeline) ->
 
 pipeline_controller(Callback, CState, Socket, Timeout, Pipeline) ->
 	Info = conn_info(Socket),
-	ReaderArgs = [self(), Socket, Timeout],
+	ReaderArgs = [self(), Socket, Callback, CState, Timeout],
 	Reader = spawn_link(?MODULE, read_pipeline, ReaderArgs),
 	Queue = gen_httpd_pipeline_queue:new(Pipeline),
 	pipeline_controller(Callback, CState, Socket, Info, Reader, Queue).
@@ -137,30 +137,39 @@ pipeline_response(Id, Response, Socket, Queue0) ->
 	end,
 	Queue1.
 
-read_pipeline(Handler, Socket, Timeout) ->
-	case receive_loop(Socket, Timeout) of
-		{ok, Req} ->
-			Handler ! {request, Req};
+read_pipeline(Handler, Socket, Callback, CState, Timeout) ->
+	case receive_loop(Socket, Callback, CState, Timeout) of
+		{ok, Req, _} ->
+			Handler ! {request, Req},
+			receive
+				next ->
+					read_pipeline(Handler, Socket, Callback, CState, Timeout);
+				stop ->
+					exit(normal)
+			end;
+		{continue, _} ->
+			read_pipeline(Handler, Socket, Callback, CState, Timeout);
 		{error, Reason} ->
 			Handler ! {error, Reason},
-			[]
-	end,
-	receive
-		next -> read_pipeline(Handler, Socket, Timeout);
-		stop -> exit(normal)
+			receive
+				next ->
+					read_pipeline(Handler, Socket, Callback, CState, Timeout);
+				stop ->
+					exit(normal)
+			end
 	end.
 
 read_requests(Callback, CState0, Socket, Timeout) ->
-	case receive_loop(Socket, Timeout) of
-		{ok, Request} ->
+	case receive_loop(Socket, Callback, CState0, Timeout) of
+		{ok, Request, CState1} ->
 			ConnInfo = conn_info(Socket),
-			case catch handle_request(Callback, CState0, ConnInfo, Request) of
-				{continue, Response, CState1} ->
+			case catch handle_request(Callback, CState1, ConnInfo, Request) of
+				{continue, Response, CState2} ->
 					ok = gen_tcpd:send(Socket, Response),
-					read_requests(Callback, CState1, Socket, Timeout);
-				{stop, Reason, Response, CState1} ->
+					read_requests(Callback, CState2, Socket, Timeout);
+				{stop, Reason, Response, CState2} ->
 					ok = gen_tcpd:send(Socket, Response),
-					Callback:terminate(Reason, CState1),
+					Callback:terminate(Reason, CState2),
 					gen_tcpd:close(Socket),
 					exit(Reason);
 				{'EXIT', Reason} ->
@@ -178,6 +187,8 @@ read_requests(Callback, CState0, Socket, Timeout) ->
 					gen_tcpd:send(Socket, Response),
 					exit(Reason)
 			end;
+		{continue, CState1} ->
+			read_requests(Callback, CState1, Socket, Timeout);
 		{error, bad_request = Reason} ->
 			Callback:terminate(Reason, CState0),
 			Response = gen_httpd_util:bad_request_resp(true),
@@ -190,25 +201,15 @@ read_requests(Callback, CState0, Socket, Timeout) ->
 			exit(Reason)
 	end.
 
-receive_loop(_, Timeout) when Timeout < 1 ->
+receive_loop(_, _, _, Timeout) when Timeout < 1 ->
 	{error, tcp_timeout};
-receive_loop(Socket, Timeout) ->
+receive_loop(Socket, Callback, CState, Timeout) ->
 	Start = now(),
 	ok = gen_tcpd:setopts(Socket, [{packet, http}]),
 	case http_packet(Socket, Timeout, nil, nil, nil, []) of
-		{ok, {Method, URI, Vsn, Hdrs}} ->
-			if
-				Method =:= 'POST'; Method =:= 'PUT' ->
-					RTime = Timeout - timer:now_diff(now(), Start) div 1000,
-					case handle_upload(Socket, Hdrs, RTime) of
-						{ok, Body} ->
-							{ok, {Method, URI, Vsn, Hdrs, Body}};
-						{error, Reason} ->
-							{error, Reason}
-					end;
-				true ->
-					{ok, {Method, URI, Vsn, Hdrs, <<>>}}
-			end;
+		{ok, Request} ->
+			RTime = Timeout - timer:now_diff(now(), Start) div 1000,
+			get_body(Socket, Callback, CState, Request, RTime);
 		{error, timeout} ->
 			{error, tcp_timeout};
 		{error, Reason} ->
@@ -237,6 +238,54 @@ http_packet(Socket, Timeout, Method0, URI0, Vsn0, Hdrs0) ->
 			{error, bad_request};
 		{error, Reason} ->
 			{error, Reason}
+	end.
+
+get_body(Socket, Callback, CState0, {'POST', URI, Vsn, Hdrs0} = R0, Timeout) ->
+	case handle_upload(Socket, Hdrs0, Timeout) of
+		{ok, Body} ->
+			{ok, {'POST', URI, Vsn, Hdrs0, Body}, CState0};
+		expect_continue ->
+			case handle_continue(Socket, Callback, CState0, R0) of
+				{get_body, R1, CState1} ->
+					get_body(Socket, Callback, CState1, R1, Timeout);
+				Reply ->
+					Reply
+			end;
+		{error, Reason} ->
+			{error, Reason}
+	end;
+get_body(Socket, Callback, CState0, {'PUT', URI, Vsn, Hdrs} = R0, Timeout) ->
+	case handle_upload(Socket, Hdrs, Timeout) of
+		{ok, Body} ->
+			{ok, {'PUT', URI, Vsn, Hdrs, Body}, CState0};
+		expect_continue ->
+			case handle_continue(Socket, Callback, CState0, R0) of
+				{get_body, R1, CState1} ->
+					get_body(Socket, Callback, CState1, R1, Timeout);
+				Reply ->
+					Reply
+			end;
+		{error, Reason} ->
+			{error, Reason}
+	end;
+get_body(_, _, CState, {Method, URI, Vsn, Hdrs}, _) ->
+	{ok, {Method, URI, Vsn, Hdrs, <<>>}, CState}.
+
+handle_continue(Socket, CB, CState0, {Method, URI, Vsn, Hdrs0}) ->
+	Info = conn_info(Socket),
+	case catch CB:handle_continue(Method, URI, Vsn, Hdrs0, Info, CState0) of
+		{continue, CState1} ->
+			Response = gen_httpd_util:continue_resp(Vsn),
+			ok = gen_tcpd:send(Socket, Response),
+			Hdrs1 = gen_httpd_util:remove_header("expect", Hdrs0),
+			Request = {'POST', URI, Vsn, Hdrs1},
+			{get_body, Request, CState1};
+		{'EXIT', Reason} ->
+			{error, Reason};
+		{reply, Reply} ->
+			{Response, CState1} = handle_cb_ret('POST', Vsn, Reply),
+			ok = gen_tcpd:send(Socket, Response),
+			{continue, CState1}
 	end.
 
 handle_async_request(Pipeline, Id, Callback, CState, Info, Request) ->
@@ -306,11 +355,19 @@ add_content_length('HEAD', _, Headers, _) ->
 	Headers;
 add_content_length(_, 200, Headers, Length) ->
 	[{"content-length", integer_to_list(Length)} | Headers];
+add_content_length(_, {200, _}, Headers, Length) ->
+	[{"content-length", integer_to_list(Length)} | Headers];
 add_content_length(_, 202, Headers, Length) ->
+	[{"content-length", integer_to_list(Length)} | Headers];
+add_content_length(_, {202, _}, Headers, Length) ->
 	[{"content-length", integer_to_list(Length)} | Headers];
 add_content_length(_, 203, Headers, Length) ->
 	[{"content-length", integer_to_list(Length)} | Headers];
+add_content_length(_, {203, _}, Headers, Length) ->
+	[{"content-length", integer_to_list(Length)} | Headers];
 add_content_length(_, 206, Headers, Length) ->
+	[{"content-length", integer_to_list(Length)} | Headers];
+add_content_length(_, {206, _}, Headers, Length) ->
 	[{"content-length", integer_to_list(Length)} | Headers];
 add_content_length(_, _, Headers, 0) ->
 	Headers;
@@ -318,15 +375,20 @@ add_content_length(_, _, Headers, Length) ->
 	[{"content-length", integer_to_list(Length)} | Headers].
 
 handle_upload(Socket, Hdrs, Timeout) ->
-	case gen_httpd_util:header_value("content-length", Hdrs) of
-		undefined ->
-			{ok, <<"">>}; % FIXME return need length error
-		ContentLength ->
-			case catch list_to_integer(ContentLength) of
-				{'EXIT', _} ->
-					{ok, <<"">>};
-				Length ->
-					gen_tcpd:setopts(Socket, [{package, raw}]),
-					gen_tcpd:recv(Socket, Length, Timeout)
+	case gen_httpd_util:header_value("expect", Hdrs) of
+		"100-continue" ->
+			expect_continue;
+		_ ->
+			case gen_httpd_util:header_value("content-length", Hdrs) of
+				undefined ->
+					{ok, <<>>}; % FIXME return need length error
+				ContentLength ->
+					case catch list_to_integer(ContentLength) of
+						{'EXIT', _} ->
+							{ok, <<>>};
+						Length ->
+							gen_tcpd:setopts(Socket, [{package, raw}]),
+							gen_tcpd:recv(Socket, Length, Timeout)
+					end
 			end
 	end.

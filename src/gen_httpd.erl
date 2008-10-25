@@ -49,6 +49,7 @@
 %%% ----------------            ---------------
 %%% gen_httpd:start_link -----> Module:init/1
 %%% -                    -----> Module:handle_request/7
+%%% -                    -----> Module:handle_continue/5
 %%% -                    -----> Module:terminate/2
 %%% </pre>
 %%%
@@ -78,18 +79,23 @@
 %%% <code>Arg</code> is the <code>CallbackArg</code> passed
 %%% to {@link start_link/6} or {@link start_link/7}.
 %%%
+%%% <strong>Note!</strong> If the concurrent pipeline mode is used this
+%%% callback will <strong>not</strong> be called by the same process that
+%%% will will call the handle_request later if <code>{continue, State}</code>
+%%% is returned.
 %%% <pre>
-%%% Module:handle_request(Method, Vsn, Headers, Body, ConnInfo, State) -> Result
+%%% Module:handle_request(Method, URI, Vsn, Headers, RequestBody, ConnInfo, State) -> Result
 %%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
 %%%                    'DELETE' | 'TRACE' | string()
-%%%           URI = '*' | {absoluteURI, http | https, Host=string(), Port=int() |
+%%%           URI = '*' | {absoluteURI, http |
+%%%                 https, Host=string(), Port=int() |
 %%%                 undefined, Path=string()} |
 %%%                 {scheme, Scheme=string(), string()} | {abs_path, string} |
 %%%                 string()
 %%%           Vsn = {Major, Minor}
 %%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
-%%%           Body = binary()
+%%%           RequestBody = binary()
 %%%           Name = Value = string()
 %%%           ConnInfo = #gen_httpd_conn{}
 %%%           State = term()
@@ -101,6 +107,47 @@
 %%% </pre>
 %%% Handle a HTTP request.
 %%%
+%%% <pre>
+%%% Module:handle_continue(Method, URI, Vsn, Headers, ConnInfo, State) -> Result
+%%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
+%%%                    'DELETE' | 'TRACE' | string()
+%%%           URI = '*' | {absoluteURI, http | https, Host=string(), Port=int() |
+%%%                 undefined, Path=string()} |
+%%%                 {scheme, Scheme=string(), string()} | {abs_path, string} |
+%%%                 string()
+%%%           Vsn = {Major, Minor}
+%%%           Major = Minor = integer()
+%%%           Headers = [{Name, Value}]
+%%%           Name = Value = string()
+%%%           ConnInfo = #gen_httpd_conn{}
+%%%           State = term()
+%%%           Result = {continue, State} | {reply, Status, Headers, Body, State}
+%%%           Status = StatusCode | {StatusCode, Description}
+%%%           StatusCode = integer()
+%%%           Description = string()
+%%%           Body = io_list()
+%%% </pre>
+%%% If the HTTP client sends the the <code>100-continue</code> token in the
+%%% <code>Expect</code> header this function will be called to allow the
+%%% callback module to decide if it wants to continue with the request or not.
+%%% For more information on <code>Expect: 100-continue</code> see:
+%%% <a
+%%% href="http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.1.1">HTTP/1.1
+%%% Section 10.1.1</a> and <a
+%%% href="http://www.w3.org/Protocols/rfc2616/rfc2616-sec8.html#sec8.2.3">Use
+%%% of the 100 (Continue) Status</a>.
+%%%
+%%% If the server wishes to continue with the request, i.e. send a status
+%%% 100 Continue and read the request body, this function should return
+%%% <code>{continue, State}</code>. If
+%%% <code>{reply, Status, Headers, Body, State}</code> is returned the
+%%% server will return an appropriate HTTP response and try to read the next
+%%% request from the client.
+%%%
+%%% <strong>Note!</strong> If the concurrent pipeline mode is used this
+%%% callback will <strong>not</strong> be called by the same process that
+%%% will will call the handle_request later if <code>{continue, State}</code>
+%%% is returned.
 %%% @end
 %%% ----------------------------------------------------------------------------
 -module(gen_httpd).
@@ -240,5 +287,6 @@ behaviour_info(callbacks) ->
 	[
 		{init,1},
 		{handle_request, 7},
+		{handle_continue, 6},
 		{terminate, 2}
 	].
