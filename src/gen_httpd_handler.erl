@@ -300,15 +300,11 @@ handle_request(Callback, CState0, Info, {Method, URI, Vsn, Hdrs, Body}) ->
 	Ret = call_cb(Callback, CState0, Info, Method, URI, Vsn, Hdrs, Body),
 	{Response, CState1} = handle_cb_ret(Method, Vsn, Ret),
 	Connection = gen_httpd_util:header_value("connection", Hdrs, undefined),
-	case {Vsn, string:to_lower(Connection)} of
-		{{1, 1}, "close"} ->
-			{stop, normal, Response, CState1};
-		{{1, 1}, _} ->
-			{continue, Response, CState1};
-		{{1, 0}, "keep-alive"} ->
-			{continue, Response, CState1};
-		{_, _} ->
-			{stop, normal, Response, CState1}
+	case {Vsn, Connection} of
+		{{1, 1}, "close"}      -> {stop, normal, Response, CState1};
+		{{1, 1}, _}            -> {continue, Response, CState1};
+		{{1, 0}, "keep-alive"} -> {continue, Response, CState1};
+		{_, _}                 -> {stop, normal, Response, CState1}
 	end.
 
 conn_info(Socket) ->
