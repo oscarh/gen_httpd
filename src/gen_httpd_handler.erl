@@ -249,7 +249,7 @@ handle_async_request(Pipeline, Id, Callback, CState, Info, Request) ->
 
 handle_request(Callback, CState0, Info, {Method, URI, Vsn, Hdrs, Body}) ->
 	Ret = call_cb(Callback, CState0, Info, Method, URI, Vsn, Hdrs, Body),
-	{Response, CState1} = handle_cb_ret(Vsn, Ret),
+	{Response, CState1} = handle_cb_ret(Method, Vsn, Ret),
 	Connection = gen_httpd_util:header_value("connection", Hdrs, undefined),
 	case {Vsn, string:to_lower(Connection)} of
 		{{1, 1}, "close"} ->
@@ -285,11 +285,10 @@ call_cb(CB, CState, Info, Method, URI, Vsn, Hdrs, Body) ->
 			Reply
 	end.
 
-handle_cb_ret(Vsn, {reply, Status, Headers0, Body, CState}) ->
+handle_cb_ret(Method, Vsn, {reply, Status, Headers0, Body, CState}) ->
 	Headers1 = case gen_httpd_util:header_exists("content-length", Headers0) of
 		false ->
-			Length = iolist_size(Body),
-			[{"content-length", integer_to_list(Length)} | Headers0];
+			add_content_length(Method, Status, Headers0, iolist_size(Body));
 		true ->
 			Headers0
 	end,
@@ -299,8 +298,24 @@ handle_cb_ret(Vsn, {reply, Status, Headers0, Body, CState}) ->
 		Body
 	],
 	{Response, CState};
-handle_cb_ret(_, Return) ->
+handle_cb_ret(_, _, Return) ->
 	exit({invalid_return_value, Return}).
+
+%% Add content-length if it is required, even when it is 0
+add_content_length('HEAD', _, Headers, _) ->
+	Headers;
+add_content_length(_, 200, Headers, Length) ->
+	[{"content-length", integer_to_list(Length)} | Headers];
+add_content_length(_, 202, Headers, Length) ->
+	[{"content-length", integer_to_list(Length)} | Headers];
+add_content_length(_, 203, Headers, Length) ->
+	[{"content-length", integer_to_list(Length)} | Headers];
+add_content_length(_, 206, Headers, Length) ->
+	[{"content-length", integer_to_list(Length)} | Headers];
+add_content_length(_, _, Headers, 0) ->
+	Headers;
+add_content_length(_, _, Headers, Length) ->
+	[{"content-length", integer_to_list(Length)} | Headers].
 
 handle_upload(Socket, Hdrs, Timeout) ->
 	case gen_httpd_util:header_value("content-length", Hdrs) of
