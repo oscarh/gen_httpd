@@ -49,7 +49,7 @@
 %%% ----------------            ---------------
 %%% gen_httpd:start_link -----> Module:init/1
 %%% -                    -----> Module:handle_request/7
-%%% -                    -----> Module:handle_continue/5
+%%% -                    -----> Module:handle_continue/6
 %%% -                    -----> Module:terminate/2
 %%% </pre>
 %%%
