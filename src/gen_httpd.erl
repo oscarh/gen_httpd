@@ -156,7 +156,6 @@
 -export([start_link/6, start_link/7]).
 -export([init/1, handle_connection/2, handle_info/2, terminate/2]).
 -export([wait_for_socket/1]).
-
 -export([behaviour_info/1]).
 
 -record(state, {callback, callback_args, timeout, pipeline}).
