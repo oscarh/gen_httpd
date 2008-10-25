@@ -81,8 +81,11 @@
 %%% <pre>
 %%% Module:handle_request(Method, Vsn, Headers, Body, ConnInfo, State) -> Result
 %%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
-%%%                    'DELETE' | 'TRACE' | string
-%%%           URI = string() 
+%%%                    'DELETE' | 'TRACE' | string()
+%%%           URI = '*' | {absoluteURI, http | https, Host=string(), Port=int() |
+%%%                 undefined, Path=string()} |
+%%%                 {scheme, Scheme=string(), string()} | {abs_path, string} |
+%%%                 string()
 %%%           Vsn = {Major, Minor}
 %%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
@@ -94,7 +97,7 @@
 %%%           Status = StatusCode | {StatusCode, Description}
 %%%           StatusCode = integer()
 %%%           Description = string()
-%%%           Body = io_data()
+%%%           Body = io_list()
 %%% </pre>
 %%% Handle a HTTP request.
 %%%
