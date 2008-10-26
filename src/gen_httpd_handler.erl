@@ -282,7 +282,7 @@ handle_continue(Socket, CB, CState0, {Method, URI, Vsn, Hdrs0}) ->
 			{get_body, Request, CState1};
 		{'EXIT', Reason} ->
 			{error, Reason};
-		{reply, Reply} ->
+		Reply ->
 			{Response, CState1} = handle_cb_ret('POST', Vsn, Reply),
 			ok = gen_tcpd:send(Socket, Response),
 			{continue, CState1}
