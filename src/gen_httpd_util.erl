@@ -49,7 +49,7 @@
 	]).
 -export([parse_query/1, uri_encode/1, uri_decode/1]).
 -export([status_line/2, format_headers/1]).
--export([internal_error_resp/1, bad_request_resp/1]).
+-export([internal_error_resp/1, bad_request_resp/1, continue_resp/1]).
 -export([reason/1]).
 
 -define(URI_ENCODE_ESCAPE,
@@ -159,6 +159,10 @@ bad_request_resp(false) ->
 	bad_request_resp([]);
 bad_request_resp(Headers) ->
 	[status_line({1, 1}, 400), format_headers(Headers)].
+
+%%% @private
+continue_resp(Vsn) ->
+	[status_line(Vsn, 100), format_headers([])].
 
 %%% @private
 reason(100) -> "Continue";
