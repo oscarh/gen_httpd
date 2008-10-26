@@ -14,6 +14,7 @@ run_test() ->
 	post_content(),
 	post_continue(),
 	post_cancel(),
+	http_client:close_connections(),
 	application:stop(httpd_test).
 
 run_pipeline_test() ->
@@ -26,6 +27,7 @@ run_pipeline_test() ->
 	post_content(),
 	post_continue(),
 	post_cancel(),
+	http_client:close_connections(),
 	application:stop(httpd_test).
 
 get_empty() ->

@@ -2,7 +2,8 @@
 
 -export([
 		send_request/4,
-		receive_response/1
+		receive_response/1,
+		close_connections/0
 	]).
 
 send_request(URI, Method, Headers, Body) ->
@@ -31,6 +32,17 @@ send(Server, Port, Request) ->
 			send(Server, Port, Request);
 		ok ->
 			Socket
+	end.
+
+close_connections() ->
+	case ets:info(connections) of
+		undefined ->
+			ok;
+		_ ->
+			ets:foldr(fun({_, Socket}, _) ->
+						gen_tcp:close(Socket)
+				end, nil, connections),
+			ets:delete(connections)
 	end.
 
 headers(Headers, ContentLength) ->
@@ -73,7 +85,9 @@ recv(Socket, Vsn0, Status0, Hdrs0, ContentLength, Body0) ->
 					end;
 				true ->
 					{ok, {Vsn0, Status0, Hdrs0, Body0}}
-			end
+			end;
+		{error, closed} ->
+			{error, closed}
 	end.
 
 parse_uri(URI) ->
