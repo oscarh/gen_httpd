@@ -60,6 +60,7 @@ start(Callback, CallbackArgs, Socket, Timeout, Pipeline) ->
 	end.
 
 pipeline_controller(Callback, CState, Socket, Timeout, Pipeline) ->
+	process_flag(trap_exit, true),
 	Info = conn_info(Socket),
 	ReaderArgs = [self(), Socket, Callback, CState, Timeout],
 	Reader = spawn_link(?MODULE, read_pipeline, ReaderArgs),
@@ -104,6 +105,8 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 			Callback:terminate(Reason, CState),
 			gen_tcpd:close(Socket),
 			exit(Reason);
+		{'EXIT', _, normal} ->
+			Queue0;
 		{'EXIT', Pid, Reason} ->
 			Report = [
 				"Error in gen_httpd callback",
@@ -126,15 +129,10 @@ pipeline_request(Callback, CState, Request, Info, Queue0) ->
 pipeline_response(Id, Response, Socket, Queue0) ->
 	{Responses, Queue1} =
 		gen_httpd_pipeline_queue:response(Id, Response, Queue0),
-	if
-		length(Responses) =:= 0 ->
-			ok;
-		true ->
-			lists:foreach(
-				fun(Resp) -> gen_tcpd:send(Socket, Resp) end,
-				Responses
-			)
-	end,
+	lists:foreach(
+		fun(Resp) -> gen_tcpd:send(Socket, Resp) end,
+		Responses
+	),
 	Queue1.
 
 read_pipeline(Handler, Socket, Callback, CState, Timeout) ->
@@ -299,8 +297,8 @@ handle_async_request(Pipeline, Id, Callback, CState, Info, Request) ->
 handle_request(Callback, CState0, Info, {Method, URI, Vsn, Hdrs, Body}) ->
 	Ret = call_cb(Callback, CState0, Info, Method, URI, Vsn, Hdrs, Body),
 	{Response, CState1} = handle_cb_ret(Method, Vsn, Ret),
-	Connection = gen_httpd_util:header_value("connection", Hdrs, undefined),
-	case {Vsn, Connection} of
+	Connection = gen_httpd_util:header_value("connection", Hdrs, ""),
+	case {Vsn, string:to_lower(Connection)} of
 		{{1, 1}, "close"}      -> {stop, normal, Response, CState1};
 		{{1, 1}, _}            -> {continue, Response, CState1};
 		{{1, 0}, "keep-alive"} -> {continue, Response, CState1};
