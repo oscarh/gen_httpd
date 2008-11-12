@@ -43,7 +43,7 @@
 
 -export([start/5]).
 
--export([read_pipeline/5, handle_async_request/6]).
+-export([pipeline_reader/5, handle_async_request/6]).
 
 -include("gen_httpd.hrl").
 
@@ -63,7 +63,7 @@ pipeline_controller(Callback, CState, Socket, Timeout, Pipeline) ->
 	process_flag(trap_exit, true),
 	Info = conn_info(Socket),
 	ReaderArgs = [self(), Socket, Callback, CState, Timeout],
-	Reader = spawn_link(?MODULE, read_pipeline, ReaderArgs),
+	Reader = spawn_link(?MODULE, pipeline_reader, ReaderArgs),
 	Queue = gen_httpd_pipeline_queue:new(Pipeline),
 	pipeline_controller(Callback, CState, Socket, Info, Reader, Queue).
 
@@ -76,8 +76,15 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 				true  -> ok
 			end,
 			Queue1;
-		{response, Id, Response} ->
-			Queue1 = pipeline_response(Id, Response, Socket, Queue0),
+		{response, Id, Response, KeepAlive} ->
+			Queue1 = pipeline_response(Id, Response, KeepAlive, Socket, Queue0),
+			if
+				not KeepAlive ->
+					Reader ! stop,
+					exit(normal);
+				KeepAlive ->
+					ok
+			end,
 			case gen_httpd_pipeline_queue:is_full(Queue0) of
 				true -> 
 					case gen_httpd_pipeline_queue:is_full(Queue1) of
@@ -92,7 +99,7 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 			Response = gen_httpd_util:bad_request_resp(false),
 			Id = gen_httpd_pipeline_queue:next_id(Queue0),
 			Queue1 = gen_httpd_pipeline_queue:push(bad_request, Queue0),
-			Queue2 = pipeline_response(Id, Response, Socket, Queue1),
+			Queue2 = pipeline_response(Id, Response, false, Socket, Queue1),
 			case gen_httpd_pipeline_queue:is_full(Queue2) of
 				false -> Reader ! next;
 				true  -> ok
@@ -116,7 +123,7 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 			error_logger:error_report(Report),
 			Response = gen_httpd_util:internal_error_resp({1, 1}),
 			Id = gen_httpd_pipeline_queue:id(Pid, Queue0),
-			pipeline_response(Id, Response, Socket, Queue0)
+			pipeline_response(Id, Response, false, Socket, Queue0)
 	end,
 	pipeline_controller(Callback, CState, Socket, Info, Reader, QueueX).
 
@@ -126,32 +133,40 @@ pipeline_request(Callback, CState, Request, Info, Queue0) ->
 	Pid = spawn_link(?MODULE, handle_async_request, Args),
 	gen_httpd_pipeline_queue:push(Pid, Queue0).
 	
-pipeline_response(Id, Response, Socket, Queue0) ->
+pipeline_response(Id, Response, KeepAlive, Socket, Queue0) ->
 	{Responses, Queue1} =
-		gen_httpd_pipeline_queue:response(Id, Response, Queue0),
-	lists:foreach(
-		fun(Resp) -> gen_tcpd:send(Socket, Resp) end,
-		Responses
-	),
+		gen_httpd_pipeline_queue:response(Id, {Response, KeepAlive}, Queue0),
+	send_responses(Responses, Socket),
 	Queue1.
 
-read_pipeline(Handler, Socket, Callback, CState, Timeout) ->
+send_responses([], _) ->
+	ok;
+send_responses([{Resp, KeepAlive} | T], Socket) ->
+	gen_tcpd:send(Socket, Resp),
+	if
+		KeepAlive     ->
+			send_responses(T, Socket);
+		not KeepAlive ->
+			gen_tcpd:close(Socket)
+	end.
+
+pipeline_reader(Handler, Socket, Callback, CState, Timeout) ->
 	case receive_loop(Socket, Callback, CState, Timeout) of
 		{ok, Req, _} ->
 			Handler ! {request, Req},
 			receive
 				next ->
-					read_pipeline(Handler, Socket, Callback, CState, Timeout);
+					pipeline_reader(Handler, Socket, Callback, CState, Timeout);
 				stop ->
 					exit(normal)
 			end;
 		{continue, _} ->
-			read_pipeline(Handler, Socket, Callback, CState, Timeout);
+			pipeline_reader(Handler, Socket, Callback, CState, Timeout);
 		{error, Reason} ->
 			Handler ! {error, Reason},
 			receive
 				next ->
-					read_pipeline(Handler, Socket, Callback, CState, Timeout);
+					pipeline_reader(Handler, Socket, Callback, CState, Timeout);
 				stop ->
 					exit(normal)
 			end
@@ -281,28 +296,31 @@ handle_continue(Socket, CB, CState0, {Method, URI, Vsn, Hdrs0}) ->
 		{'EXIT', Reason} ->
 			{error, Reason};
 		Reply ->
-			{Response, CState1} = handle_cb_ret('POST', Vsn, Reply),
-			ok = gen_tcpd:send(Socket, Response),
+			{Resp, _, CState1} = handle_cb_ret('POST', Vsn, Reply, undefined),
+			ok = gen_tcpd:send(Socket, Resp),
 			{continue, CState1}
 	end.
 
 handle_async_request(Pipeline, Id, Callback, CState, Info, Request) ->
 	case handle_request(Callback, CState, Info, Request) of
 		{continue, Response, _} ->
-			Pipeline ! {response, Id, iolist_to_binary(Response)};
+			Pipeline ! {response, Id, iolist_to_binary(Response), true};
 		{stop, _, Response, _} ->
-			Pipeline ! {response, Id, iolist_to_binary(Response)}
+			Pipeline ! {response, Id, iolist_to_binary(Response), false}
 	end.
 
 handle_request(Callback, CState0, Info, {Method, URI, Vsn, Hdrs, Body}) ->
 	Ret = call_cb(Callback, CState0, Info, Method, URI, Vsn, Hdrs, Body),
-	{Response, CState1} = handle_cb_ret(Method, Vsn, Ret),
-	Connection = gen_httpd_util:header_value("connection", Hdrs, ""),
-	case {Vsn, string:to_lower(Connection)} of
-		{{1, 1}, "close"}      -> {stop, normal, Response, CState1};
-		{{1, 1}, _}            -> {continue, Response, CState1};
-		{{1, 0}, "keep-alive"} -> {continue, Response, CState1};
-		{_, _}                 -> {stop, normal, Response, CState1}
+	ClConn = case gen_httpd_util:header_value("connection", Hdrs, "") of
+		undefined -> undefined;
+		String    -> string:to_lower(String)
+	end,
+	{Resp, KeepAlive, CState1} = handle_cb_ret(Method, Vsn, Ret, ClConn),
+	case {KeepAlive, Vsn} of
+		{false, _}  -> {stop, normal, Resp, CState1};
+		{_, {1, 1}} -> {continue, Resp, CState1};
+		{_, {1, 0}} -> {continue, Resp, CState1};
+		{_, _}      -> {stop, normal, Resp, CState1}
 	end.
 
 conn_info(Socket) ->
@@ -328,20 +346,47 @@ call_cb(CB, CState, Info, Method, URI, Vsn, Hdrs, Body) ->
 			Reply
 	end.
 
-handle_cb_ret(Method, Vsn, {reply, Status, Headers0, Body, CState}) ->
-	Headers1 = case gen_httpd_util:header_exists("content-length", Headers0) of
+handle_cb_ret(Method, Vsn, {reply, Status, Hdrs0, Body, CState}, ClConn) ->
+	Hdrs1 = case gen_httpd_util:header_exists("content-length", Hdrs0) of
 		false ->
-			add_content_length(Method, Status, Headers0, iolist_size(Body));
+			add_content_length(Method, Status, Hdrs0, iolist_size(Body));
 		true ->
-			Headers0
+			Hdrs0
+	end,
+	{_, Minor} = Vsn,
+	{Hdrs2, KeepAlive} = case gen_httpd_util:header_value("connection", Hdrs1) of
+		undefined ->
+			case ClConn of
+				"close" ->
+					{[{"Connection", "close"} | Hdrs1], false};
+				"keep-alive" when Minor =:= 0 ->
+					{[{"Connection", "Keep-Alive"} | Hdrs1], true};
+				_ when Minor > 0 ->
+					{Hdrs1, true};
+				_ when Minor =:= 0 ->
+					{Hdrs1, false}
+			end;
+		"close" ->
+			{Hdrs1, false};
+		_ ->
+			case ClConn of
+				"close" ->
+					{Hdrs1, false};
+				"keep-alive" ->
+					{Hdrs1, true};
+				_ when Minor > 0 ->
+					{Hdrs1, true};
+				_ when Minor =:= 0 ->
+					{Hdrs1, false}
+			end
 	end,
 	Response = [
 		gen_httpd_util:status_line(Vsn, Status),
-		gen_httpd_util:format_headers(Headers1),
+		gen_httpd_util:format_headers(Hdrs2),
 		Body
 	],
-	{Response, CState};
-handle_cb_ret(_, _, Return) ->
+	{Response, KeepAlive, CState};
+handle_cb_ret(_, _, Return, _) ->
 	exit({invalid_return_value, Return}).
 
 %% Add content-length if it is required, even when it is 0
