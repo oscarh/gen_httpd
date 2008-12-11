@@ -419,20 +419,39 @@ add_content_length(_, _, Headers, Length) ->
 	[{"content-length", integer_to_list(Length)} | Headers].
 
 handle_upload(Socket, Hdrs, Timeout) ->
-	case gen_httpd_util:header_value("expect", Hdrs) of
+	case header_value("expect", Hdrs) of
 		"100-continue" ->
 			expect_continue;
 		_ ->
-			case gen_httpd_util:header_value("content-length", Hdrs) of
-				undefined ->
-					{ok, <<>>}; % FIXME return need length error
-				ContentLength ->
+			ContentLength = header_value("content-length", Hdrs),
+			TransEnc = header_value("transfer-encoding", Hdrs, "identity"),
+			case string:to_lower(TransEnc) of
+				"identity" ->
 					case catch list_to_integer(ContentLength) of
 						{'EXIT', _} ->
-							{ok, <<>>};
+							exit(bad_request);
 						Length ->
 							gen_tcpd:setopts(Socket, [{packet, raw}]),
 							gen_tcpd:recv(Socket, Length, Timeout)
-					end
+					end;
+				"chunked" ->
+					{ok, {chunked, fun() -> read_chunk(Socket, Timeout) end}};
+				_Other ->
+					exit(bad_request)
 			end
+	end.
+
+read_chunk(Socket, Timeout) ->
+	ok = gen_tcpd:setopts(Socket, [{packet, line}]),
+	case gen_tcpd:recv(Socket, 0, Timeout) of
+		{ok, Line} ->
+			[ChunkSize | _] = string:tokens(binary_to_list(Line), ";\r\n"),
+			ok = gen_tcpd:setopts(Socket, [{packet, raw}]),
+			case  catch erlang:list_to_integer(ChunkSize, 16) of
+				{'EXIT', _} -> {error, bad_request};
+				0           -> {error, last_chunk};
+				Size        -> gen_tcpd:recv(Socket, Size, Timeout)
+			end;
+		Other ->
+			Other
 	end.
