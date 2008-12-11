@@ -152,7 +152,7 @@
 -module(gen_httpd).
 -behaviour(gen_tcpd).
 
--export([start_link/6, start_link/7]).
+-export([start_link/6, start_link/7, port/1]).
 -export([init/1, handle_connection/2, handle_info/2, terminate/2]).
 -export([wait_for_socket/1]).
 -export([behaviour_info/1]).
@@ -209,6 +209,16 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSL, Options) ->
 	Opts = [{active, false}, binary | SockOpts] ++ SSL,
 	InitArgs = [Callback, CallbackArg, Timeout, Options],
 	gen_tcpd:start_link(?MODULE, InitArgs, ssl, Port, Opts).
+
+%% @spec port(Ref) -> {ok, Port}
+%% Ref = pid()
+%% Port = integer()
+%% @doc
+%% Returns the port a gen_tcpd process is listening on.
+%% @end
+-spec port(pid()) -> {ok, 1..65535}.
+port(Ref) ->
+	gen_tcpd:port(Ref).
 
 %% @hidden
 init([Callback, CallbackArg, Timeout, Options]) ->
