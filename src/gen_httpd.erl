@@ -47,9 +47,9 @@
 %%% <pre>
 %%% gen_httpd module            Callback module
 %%% ----------------            ---------------
-%%% gen_httpd:start_link -----> Module:init/1
-%%% -                    -----> Module:handle_request/7
-%%% -                    -----> Module:handle_continue/6
+%%% gen_httpd:start_link -----> Module:init/2
+%%% -                    -----> Module:handle_request/6
+%%% -                    -----> Module:handle_continue/5
 %%% -                    -----> Module:terminate/2
 %%% </pre>
 %%%
@@ -67,8 +67,9 @@
 %%%
 %%% == Callbacks ==
 %%% <pre>
-%%% Module:init(Arg) -> Result
-%%%     Types Args = term()
+%%% Module:init(ConnInfo, Arg) -> Result
+%%%     Types ConnInfo = #gen_httpd_conn{}
+%%%           Args = term()
 %%%           Result = {ok, State} | {stop, Reason}
 %%% </pre>
 %%% After {@link start_link/6} or {@link start_link/7} has been called this
@@ -84,7 +85,7 @@
 %%% will will call the handle_request later if <code>{continue, State}</code>
 %%% is returned.
 %%% <pre>
-%%% Module:handle_request(Method, URI, Vsn, Headers, RequestBody, ConnInfo, State) -> Result
+%%% Module:handle_request(Method, URI, Vsn, Headers, RequestBody, State) -> Result
 %%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
 %%%                    'DELETE' | 'TRACE' | string()
 %%%           URI = '*' | {absoluteURI, http |
@@ -97,7 +98,6 @@
 %%%           Headers = [{Name, Value}]
 %%%           RequestBody = binary()
 %%%           Name = Value = string()
-%%%           ConnInfo = #gen_httpd_conn{}
 %%%           State = term()
 %%%           Result = {reply, Status, Headers, Body, State}
 %%%           Status = StatusCode | {StatusCode, Description}
@@ -108,7 +108,7 @@
 %%% Handle a HTTP request.
 %%%
 %%% <pre>
-%%% Module:handle_continue(Method, URI, Vsn, Headers, ConnInfo, State) -> Result
+%%% Module:handle_continue(Method, URI, Vsn, Headers, State) -> Result
 %%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
 %%%                    'DELETE' | 'TRACE' | string()
 %%%           URI = '*' | {absoluteURI, http | https, Host=string(), Port=int() |
@@ -119,7 +119,6 @@
 %%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
 %%%           Name = Value = string()
-%%%           ConnInfo = #gen_httpd_conn{}
 %%%           State = term()
 %%%           Result = {continue, State} | {reply, Status, Headers, Body, State}
 %%%           Status = StatusCode | {StatusCode, Description}
@@ -171,7 +170,7 @@
 %% Opt = {concurrent_pipeline, Length::integer()}
 %% Pid = pid()
 %% @doc Starts a gen_httpd process and links to it.
-%% The process created will call <code>Callback:init/1</code> with
+%% The process created will call <code>Callback:init/2</code> with
 %% <code>CallbackArg</code> to initialise an internal state.
 %% The HTTP server will listen on port <code>Port</code> and keep persistent
 %% connections open for <code>Timeout</code> milliseconds.
@@ -284,8 +283,8 @@ validate_options([]) ->
 %% @hidden
 behaviour_info(callbacks) ->
 	[
-		{init,1},
-		{handle_request, 7},
-		{handle_continue, 6},
+		{init,2},
+		{handle_request, 6},
+		{handle_continue, 5},
 		{terminate, 2}
 	].

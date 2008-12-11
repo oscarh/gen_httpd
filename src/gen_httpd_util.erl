@@ -69,7 +69,7 @@ header_value(Name, [{Name, Value} | _], _) ->
 	Value;
 header_value(Name, [{N, Value} | T], Default) ->
 	case string:equal(Name, string:to_lower(N)) of
-		true  -> string:to_lower(Value);
+		true  -> Value;
 		false -> header_value(Name, T, Default)
 	end;
 header_value(_, [], Default) ->

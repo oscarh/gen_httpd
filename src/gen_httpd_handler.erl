@@ -43,74 +43,86 @@
 
 -export([start/5]).
 
--export([pipeline_reader/5, handle_async_request/6]).
+-export([pipeline_reader/5, handle_async_request/5]).
 
 -include("gen_httpd.hrl").
 
 start(Callback, CallbackArgs, Socket, Timeout, Pipeline) ->
-	CState = case Callback:init(CallbackArgs) of
+	process_flag(trap_exit, true),
+	Info = conn_info(Socket),
+	CState = case Callback:init(Info, CallbackArgs) of
 		{ok, State} -> State;
 		Other       -> exit({invalid_return_value, Other})
 	end,
 	if
 		Pipeline > 1 ->
-			pipeline_controller(Callback, CState, Socket, Timeout, Pipeline);
+			start_pipeline(Callback, CState, Socket, Timeout, Pipeline);
 		Pipeline < 2 ->
-			read_requests(Callback, CState, Socket, Timeout)
+			request_reader(Callback, CState, Socket, Timeout)
 	end.
 
-pipeline_controller(Callback, CState, Socket, Timeout, Pipeline) ->
-	process_flag(trap_exit, true),
-	Info = conn_info(Socket),
+pipeline_reader(Handler, Socket, Callback, CState, Timeout) ->
+	case receive_loop(Socket, Callback, CState, Timeout) of
+		{ok, Req, _} ->
+			Handler ! {request, Req};
+		{error, bad_request} ->
+			Handler ! {request, bad_request};
+		{error, Reason} ->
+			exit(Reason)
+	end,
+	receive
+		next -> pipeline_reader(Handler, Socket, Callback, CState, Timeout)
+	end.
+
+start_pipeline(Callback, CState, Socket, Timeout, Pipeline) ->
 	ReaderArgs = [self(), Socket, Callback, CState, Timeout],
 	Reader = spawn_link(?MODULE, pipeline_reader, ReaderArgs),
 	Queue = gen_httpd_pipeline_queue:new(Pipeline),
-	pipeline_controller(Callback, CState, Socket, Info, Reader, Queue).
+	pipeline_controller(Callback, CState, Socket, Reader, Queue).
 
-pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
+pipeline_controller(CB, CState, Socket, Reader, Queue0) ->
 	QueueX = receive
+		{response, Id, Resp, _, KeepAlive} ->
+			case pipeline_response(Id, Resp, KeepAlive, Socket, Queue0) of
+				{ok, Queue1} ->
+					WasFull = gen_httpd_pipeline_queue:is_full(Queue0),
+					IsFull = gen_httpd_pipeline_queue:is_full(Queue1),
+					if
+						WasFull andalso not IsFull ->
+							Reader ! next;
+						not WasFull orelse IsFull ->
+							ok
+					end,
+					Queue1;
+				stop ->
+					unlink(Reader),
+					exit(Reader, kill),
+					gen_tcpd:close(Socket),
+					exit(normal)
+			end;
+		{request, bad_request} ->
+			Response = gen_httpd_util:bad_request_resp(false),
+			Id = gen_httpd_pipeline_queue:next_id(Queue0),
+			Queue1 = gen_httpd_pipeline_queue:push(bad_request, Queue0),
+			case pipeline_response(Id, Response, false, Socket, Queue1) of
+				{ok, Queue2} ->
+					Queue2;
+				stop ->
+					unlink(Reader),
+					exit(Reader, kill),
+					gen_tcpd:close(Socket),
+					exit(normal)
+			end;
 		{request, Request} ->
-			Queue1 = pipeline_request(Callback, CState, Request, Info, Queue0),
+			Queue1 = pipeline_request(CB, CState, Request, Queue0),
 			case gen_httpd_pipeline_queue:is_full(Queue1) of
 				false -> Reader ! next;
 				true  -> ok
 			end,
 			Queue1;
-		{response, Id, Response, KeepAlive} ->
-			Queue1 = pipeline_response(Id, Response, KeepAlive, Socket, Queue0),
-			if
-				not KeepAlive ->
-					Reader ! stop,
-					exit(normal);
-				KeepAlive ->
-					ok
-			end,
-			case gen_httpd_pipeline_queue:is_full(Queue0) of
-				true -> 
-					case gen_httpd_pipeline_queue:is_full(Queue1) of
-						false -> Reader ! next;
-						true  -> ok
-					end;
-				false ->
-					ok % Already waiting for request.
-			end,
-			Queue1;
-		{error, bad_request} ->
-			Response = gen_httpd_util:bad_request_resp(false),
-			Id = gen_httpd_pipeline_queue:next_id(Queue0),
-			Queue1 = gen_httpd_pipeline_queue:push(bad_request, Queue0),
-			Queue2 = pipeline_response(Id, Response, false, Socket, Queue1),
-			case gen_httpd_pipeline_queue:is_full(Queue2) of
-				false -> Reader ! next;
-				true  -> ok
-			end,
-			Queue2;
-		{error, Reason} ->
-			Callback:terminate(Reason, CState),
-			exit(Reason);
 		{'EXIT', Reader, Reason} ->
-			Callback:terminate(Reason, CState),
 			gen_tcpd:close(Socket),
+			CB:terminate(closed, CState),
 			exit(Reason);
 		{'EXIT', _, normal} ->
 			Queue0;
@@ -121,115 +133,116 @@ pipeline_controller(Callback, CState, Socket, Info, Reader, Queue0) ->
 				{reason, Reason}
 			],
 			error_logger:error_report(Report),
-			Response = gen_httpd_util:internal_error_resp({1, 1}),
+			Resp = gen_httpd_util:internal_error_resp({1, 1}),
 			Id = gen_httpd_pipeline_queue:id(Pid, Queue0),
-			pipeline_response(Id, Response, false, Socket, Queue0)
+			pipeline_response(Id, Resp, false, Socket, Queue0),
+			unlink(Reader),
+			exit(Reader, kill),
+			gen_tcpd:close(Socket),
+			exit(normal)
 	end,
-	pipeline_controller(Callback, CState, Socket, Info, Reader, QueueX).
+	pipeline_controller(CB, CState, Socket, Reader, QueueX).
 
-pipeline_request(Callback, CState, Request, Info, Queue0) ->
+request_reader(Callback, CState0, Socket, Timeout) ->
+	case receive_loop(Socket, Callback, CState0, Timeout) of
+		{ok, Request, CState1} ->
+			Args = [self(), nil, Callback, CState1, Request],
+			Pid = spawn_link(?MODULE, handle_async_request, Args),
+			receive
+				{response, _, Response, CState2, true} ->
+					ok = gen_tcpd:send(Socket, Response),
+					request_reader(Callback, CState2, Socket, Timeout);
+				{response, _, Response, CState2, false} ->
+					ok = gen_tcpd:send(Socket, Response),
+					Callback:terminate(normal, CState2),
+					gen_tcpd:close(Socket),
+					exit(normal);
+				{'EXIT', Pid, Reason} ->
+					Vsn = element(3, Request),
+					Response = gen_httpd_util:internal_error_resp(Vsn),
+					ok = gen_tcpd:send(Socket, Response),
+					gen_tcpd:close(Socket),
+					Report = [
+						"Error in gen_httpd callback",
+						{pid, self()},
+						{method, element(1, Request)},
+						{uri, element(2, Request)},
+						{version, Vsn},
+						{reason, Reason}
+					],
+					error_logger:error_report(Report),
+					exit(normal);
+				{'EXIT', AnotherPid, Reason} ->
+					Report = [
+						"Error in process linked to gen_httpd_handler",
+						{pid, AnotherPid},
+						{reason, Reason}
+					],
+					error_logger:error_report(Report),
+					exit(Reason)
+			end;
+		{error, bad_request} ->
+			Response = gen_httpd_util:bad_request_resp(true),
+			gen_tcpd:send(Socket, Response),
+			gen_tcpd:close(Socket),
+			Callback:terminate(bad_request, CState0),
+			exit(bad_request);
+		{error, tcp_timeout} ->
+			gen_tcpd:close(Socket),
+			Callback:terminate(tcp_timeout, CState0),
+			exit(tcp_timeout);
+		{error, Reason} ->
+			gen_tcpd:close(Socket),
+			Callback:terminate(Reason, CState0),
+			exit(Reason)
+	end.
+
+pipeline_request(Callback, CState, Request, Queue0) ->
 	Id = gen_httpd_pipeline_queue:next_id(Queue0),
-	Args = [self(), Id, Callback, CState, Info, Request],
+	Args = [self(), Id, Callback, CState, Request],
 	Pid = spawn_link(?MODULE, handle_async_request, Args),
 	gen_httpd_pipeline_queue:push(Pid, Queue0).
 	
 pipeline_response(Id, Response, KeepAlive, Socket, Queue0) ->
 	{Responses, Queue1} =
 		gen_httpd_pipeline_queue:response(Id, {Response, KeepAlive}, Queue0),
-	send_responses(Responses, Socket),
-	Queue1.
+	case send_responses(Responses, Socket) of
+		ok -> {ok, Queue1};
+		stop -> stop
+	end.
 
-send_responses([], _) ->
-	ok;
-send_responses([{Resp, KeepAlive} | T], Socket) ->
+send_responses([{Resp, true} | T], Socket) ->
 	gen_tcpd:send(Socket, Resp),
-	if
-		KeepAlive     ->
-			send_responses(T, Socket);
-		not KeepAlive ->
-			gen_tcpd:close(Socket)
-	end.
+	send_responses(T, Socket);
+send_responses([{Resp, false} | _], Socket) ->
+	gen_tcpd:send(Socket, Resp),
+	stop;
+send_responses([], _) ->
+	ok.
 
-pipeline_reader(Handler, Socket, Callback, CState, Timeout) ->
-	case receive_loop(Socket, Callback, CState, Timeout) of
-		{ok, Req, _} ->
-			Handler ! {request, Req},
-			receive
-				next ->
-					pipeline_reader(Handler, Socket, Callback, CState, Timeout);
-				stop ->
-					exit(normal)
-			end;
-		{continue, _} ->
-			pipeline_reader(Handler, Socket, Callback, CState, Timeout);
-		{error, Reason} ->
-			Handler ! {error, Reason},
-			receive
-				next ->
-					pipeline_reader(Handler, Socket, Callback, CState, Timeout);
-				stop ->
-					exit(normal)
-			end
-	end.
-
-read_requests(Callback, CState0, Socket, Timeout) ->
-	case receive_loop(Socket, Callback, CState0, Timeout) of
-		{ok, Request, CState1} ->
-			ConnInfo = conn_info(Socket),
-			case catch handle_request(Callback, CState1, ConnInfo, Request) of
-				{continue, Response, CState2} ->
-					ok = gen_tcpd:send(Socket, Response),
-					read_requests(Callback, CState2, Socket, Timeout);
-				{stop, Reason, Response, CState2} ->
-					ok = gen_tcpd:send(Socket, Response),
-					Callback:terminate(Reason, CState2),
-					gen_tcpd:close(Socket),
-					exit(Reason);
-				{'EXIT', Reason} ->
-					Report = [
-						"Error in gen_httpd callback",
-						{pid, self()},
-						{method, element(1, Request)},
-						{uri, element(2, Request)},
-						{version, element(3, Request)},
-						{reason, Reason}
-					],
-					error_logger:error_report(Report),
-					Vsn = element(3, Request),
-					Response = gen_httpd_util:internal_error_resp(Vsn),
-					gen_tcpd:send(Socket, Response),
-					exit(Reason)
-			end;
-		{continue, CState1} ->
-			read_requests(Callback, CState1, Socket, Timeout);
-		{error, bad_request = Reason} ->
-			Callback:terminate(Reason, CState0),
-			Response = gen_httpd_util:bad_request_resp(true),
-			gen_tcpd:send(Socket, Response),
-			gen_tcpd:close(Socket),
-			exit(Reason);
-		{error, Reason} ->
-			Callback:terminate(Reason, CState0),
-			gen_tcpd:close(Socket),
-			exit(Reason)
-	end.
-
-receive_loop(_, _, _, Timeout) when Timeout < 1 ->
+receive_loop(_, _, _, Timeout) when Timeout < 0 ->
 	{error, tcp_timeout};
-receive_loop(Socket, Callback, CState, Timeout) ->
+receive_loop(Socket, Callback, CState0, Timeout) ->
 	Start = now(),
 	ok = gen_tcpd:setopts(Socket, [{packet, http}]),
 	case http_packet(Socket, Timeout, nil, nil, nil, []) of
-		{ok, Request} ->
+		{ok, {Method, URI, Vsn, Hdrs} = Request} ->
 			RTime = Timeout - timer:now_diff(now(), Start) div 1000,
-			get_body(Socket, Callback, CState, Request, RTime);
+			case get_body(Socket, Callback, CState0, Request, RTime) of
+				{ok, Body, CState1} ->
+					{ok, {Method, URI, Vsn, Hdrs, Body}, CState1};
+				{error, Reason} ->
+					{error, Reason};
+				{continue, CState1} ->
+					receive_loop(Socket, Callback, CState1, Timeout)
+			end;
 		{error, timeout} ->
 			{error, tcp_timeout};
 		{error, Reason} ->
 			{error, Reason}
 	end.
 
-http_packet(_, Timeout, _, _, _, _) when Timeout < 1 ->
+http_packet(_, Timeout, _, _, _, _) when Timeout < 0 ->
 	{error, tcp_timeout};
 http_packet(Socket, Timeout, Method0, URI0, Vsn0, Hdrs0) ->
 	Start = now(),
@@ -253,40 +266,33 @@ http_packet(Socket, Timeout, Method0, URI0, Vsn0, Hdrs0) ->
 			{error, Reason}
 	end.
 
-get_body(Socket, Callback, CState0, {'POST', URI, Vsn, Hdrs0} = R0, Timeout) ->
-	case handle_upload(Socket, Hdrs0, Timeout) of
-		{ok, Body} ->
-			{ok, {'POST', URI, Vsn, Hdrs0, Body}, CState0};
-		expect_continue ->
-			case handle_continue(Socket, Callback, CState0, R0) of
-				{get_body, R1, CState1} ->
-					get_body(Socket, Callback, CState1, R1, Timeout);
-				Reply ->
-					Reply
-			end;
-		{error, Reason} ->
-			{error, Reason}
-	end;
-get_body(Socket, Callback, CState0, {'PUT', URI, Vsn, Hdrs} = R0, Timeout) ->
+get_body(Socket, Callback, CState, {'POST', _, _, _} = Request, Timeout) ->
+	do_get_body(Socket, Callback, CState, Request, Timeout);
+get_body(Socket, Callback, CState, {'PUT', _, _, _} = Request, Timeout) ->
+	do_get_body(Socket, Callback, CState, Request, Timeout);
+get_body(_, _, CState, _, _) ->
+	{ok, <<>>, CState}.
+
+do_get_body(Socket, Callback, CState0, R0, Timeout) ->
+	Hdrs = element(4, R0),
 	case handle_upload(Socket, Hdrs, Timeout) of
 		{ok, Body} ->
-			{ok, {'PUT', URI, Vsn, Hdrs, Body}, CState0};
+			{ok, Body, CState0};
 		expect_continue ->
 			case handle_continue(Socket, Callback, CState0, R0) of
 				{get_body, R1, CState1} ->
-					get_body(Socket, Callback, CState1, R1, Timeout);
-				Reply ->
-					Reply
+					do_get_body(Socket, Callback, CState1, R1, Timeout);
+				{continue, CState1} ->
+					{continue, CState1}
 			end;
+		{error, timeout} ->
+			{error, tcp_timeout};
 		{error, Reason} ->
 			{error, Reason}
-	end;
-get_body(_, _, CState, {Method, URI, Vsn, Hdrs}, _) ->
-	{ok, {Method, URI, Vsn, Hdrs, <<>>}, CState}.
+	end.
 
 handle_continue(Socket, CB, CState0, {Method, URI, Vsn, Hdrs0}) ->
-	Info = conn_info(Socket),
-	case catch CB:handle_continue(Method, URI, Vsn, Hdrs0, Info, CState0) of
+	case catch CB:handle_continue(Method, URI, Vsn, Hdrs0, CState0) of
 		{continue, CState1} ->
 			Response = gen_httpd_util:continue_resp(Vsn),
 			ok = gen_tcpd:send(Socket, Response),
@@ -301,27 +307,20 @@ handle_continue(Socket, CB, CState0, {Method, URI, Vsn, Hdrs0}) ->
 			{continue, CState1}
 	end.
 
-handle_async_request(Pipeline, Id, Callback, CState, Info, Request) ->
-	case handle_request(Callback, CState, Info, Request) of
-		{continue, Response, _} ->
-			Pipeline ! {response, Id, iolist_to_binary(Response), true};
-		{stop, _, Response, _} ->
-			Pipeline ! {response, Id, iolist_to_binary(Response), false}
-	end.
+handle_async_request(Controller, Id, CB, CState0, Request) ->
+	{Resp, CState1, KeepAlive} = handle_request(CB, CState0, Request),
+	Controller ! {response, Id, Resp, CState1, KeepAlive},
+	%% Unlink from controller, to avoid having to deal with the exit
+	%% message.
+	unlink(Controller).
 
-handle_request(Callback, CState0, Info, {Method, URI, Vsn, Hdrs, Body}) ->
-	Ret = call_cb(Callback, CState0, Info, Method, URI, Vsn, Hdrs, Body),
+handle_request(Callback, CState0, {Method, URI, Vsn, Hdrs, Body}) ->
+	Ret = call_cb(Callback, CState0, Method, URI, Vsn, Hdrs, Body),
 	ClConn = case gen_httpd_util:header_value("connection", Hdrs, "") of
 		undefined -> undefined;
 		String    -> string:to_lower(String)
 	end,
-	{Resp, KeepAlive, CState1} = handle_cb_ret(Method, Vsn, Ret, ClConn),
-	case {KeepAlive, Vsn} of
-		{false, _}  -> {stop, normal, Resp, CState1};
-		{_, {1, 1}} -> {continue, Resp, CState1};
-		{_, {1, 0}} -> {continue, Resp, CState1};
-		{_, _}      -> {stop, normal, Resp, CState1}
-	end.
+	handle_cb_ret(Method, Vsn, Ret, ClConn).
 
 conn_info(Socket) ->
 	{ok, {RemoteHost, RemotePort}} = gen_tcpd:peername(Socket),
@@ -338,20 +337,29 @@ conn_info(Socket) ->
 		local_port = LocalPort
 	}.
 
-call_cb(CB, CState, Info, Method, URI, Vsn, Hdrs, Body) ->
-	case catch CB:handle_request(Method, URI, Vsn, Hdrs, Body, Info, CState) of
+call_cb(CB, CState, Method, URI, Vsn, Hdrs, Body) ->
+	case catch CB:handle_request(Method, URI, Vsn, Hdrs, Body, CState) of
 		{'EXIT', {function_clause, [{CB, handle_request, _} | _]}} ->
-			{reply, 501, [{"connection", "close"}], [], CState};
+			{reply, 501, [{"Connection", "close"}], [], CState};
+		{'EXIT', Reason} ->
+			Report = [
+				"Error in gen_httpd callback",
+				{pid, self()},
+				{method, Method},
+				{uri, URI},
+				{version, Vsn},
+				{reason, Reason}
+			],
+			error_logger:error_report(Report),
+			{reply, 500, [{"Connection", "close"}], [], CState};
 		Reply ->
 			Reply
 	end.
 
 handle_cb_ret(Method, Vsn, {reply, Status, Hdrs0, Body, CState}, ClConn) ->
 	Hdrs1 = case gen_httpd_util:header_exists("content-length", Hdrs0) of
-		false ->
-			add_content_length(Method, Status, Hdrs0, iolist_size(Body));
-		true ->
-			Hdrs0
+		false -> add_content_length(Method, Status, Hdrs0, iolist_size(Body));
+		true  -> Hdrs0
 	end,
 	{_, Minor} = Vsn,
 	{Hdrs2, KeepAlive} = case gen_httpd_util:header_value("connection", Hdrs1) of
@@ -370,14 +378,10 @@ handle_cb_ret(Method, Vsn, {reply, Status, Hdrs0, Body, CState}, ClConn) ->
 			{Hdrs1, false};
 		_ ->
 			case ClConn of
-				"close" ->
-					{Hdrs1, false};
-				"keep-alive" ->
-					{Hdrs1, true};
-				_ when Minor > 0 ->
-					{Hdrs1, true};
-				_ when Minor =:= 0 ->
-					{Hdrs1, false}
+				"close"            -> {Hdrs1, false};
+				"keep-alive"       -> {Hdrs1, true};
+				_ when Minor > 0   -> {Hdrs1, true};
+				_ when Minor =:= 0 -> {Hdrs1, false}
 			end
 	end,
 	Response = [
@@ -385,7 +389,7 @@ handle_cb_ret(Method, Vsn, {reply, Status, Hdrs0, Body, CState}, ClConn) ->
 		gen_httpd_util:format_headers(Hdrs2),
 		Body
 	],
-	{Response, KeepAlive, CState};
+	{Response, CState, KeepAlive};
 handle_cb_ret(_, _, Return, _) ->
 	exit({invalid_return_value, Return}).
 
