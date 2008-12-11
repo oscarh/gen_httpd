@@ -42,8 +42,9 @@
 -module(gen_httpd_handler).
 
 -export([start/5]).
-
 -export([pipeline_reader/5, handle_async_request/5]).
+
+-import(gen_httpd_util, [header_value/2, header_value/3]).
 
 -include("gen_httpd.hrl").
 
@@ -316,7 +317,7 @@ handle_async_request(Controller, Id, CB, CState0, Request) ->
 
 handle_request(Callback, CState0, {Method, URI, Vsn, Hdrs, Body}) ->
 	Ret = call_cb(Callback, CState0, Method, URI, Vsn, Hdrs, Body),
-	ClConn = case gen_httpd_util:header_value("connection", Hdrs, "") of
+	ClConn = case header_value("connection", Hdrs, "") of
 		undefined -> undefined;
 		String    -> string:to_lower(String)
 	end,
@@ -362,7 +363,7 @@ handle_cb_ret(Method, Vsn, {reply, Status, Hdrs0, Body, CState}, ClConn) ->
 		true  -> Hdrs0
 	end,
 	{_, Minor} = Vsn,
-	{Hdrs2, KeepAlive} = case gen_httpd_util:header_value("connection", Hdrs1) of
+	{Hdrs2, KeepAlive} = case header_value("connection", Hdrs1) of
 		undefined ->
 			case ClConn of
 				"close" ->
