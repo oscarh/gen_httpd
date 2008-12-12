@@ -107,6 +107,23 @@
 %%% </pre>
 %%% Handle a HTTP request.
 %%%
+%%% In case of POST or PUT requests, the body is received in
+%%% <code>RequestBody</code>.
+%%% For all requests that don't have a entity, the <code>RequestBody</code>
+%%% should be ignored. If the <code>RequestBody</code> is <code>{chunked,
+%%% Reader}</code> the client is using chunked Transfer-Encoding to transfer
+%%% data with the request.
+%%% In this case every call to the <code>Reader</code> fun will
+%%% return a chunk in the form <code>{ok, Data}</code> where
+%%% <code>data</code> is a binary(). When the last chunk has been read, the
+%%% next call to <code>Reader</code> will return
+%%% <code>{error, last_chunk}</code>.
+%%% If the <code>Reader</code> fails due to a protocol error it will return
+%%% <code>{error, bad_request}</code>. <code>Reason</code> can also be
+%%% anything that <code>gen_tcp</code> returns as error codes when calling
+%%% recv/2 in TCP mode and what <code>ssl</code> returns as error codes
+%%% when calling recv/2 in ssl mode.
+%%%
 %%% <pre>
 %%% Module:handle_continue(Method, URI, Vsn, Headers, State) -> Result
 %%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
