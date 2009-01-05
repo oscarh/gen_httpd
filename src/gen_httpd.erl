@@ -80,9 +80,9 @@
 %%% <code>Arg</code> is the <code>CallbackArg</code> passed
 %%% to {@link start_link/6} or {@link start_link/7}.
 %%%
-%%% <strong>Note!</strong> If the concurrent pipeline mode is used this
+%%% <strong>Note!</strong> This
 %%% callback will <strong>not</strong> be called by the same process that
-%%% will will call the handle_request later if <code>{continue, State}</code>
+%%% will call the handle_request later if <code>{continue, State}</code>
 %%% is returned.
 %%% <pre>
 %%% Module:handle_request(Method, URI, Vsn, Headers, RequestBody, State) -> Result
@@ -160,9 +160,9 @@
 %%% server will return an appropriate HTTP response and try to read the next
 %%% request from the client.
 %%%
-%%% <strong>Note!</strong> If the concurrent pipeline mode is used this
+%%% <strong>Note!</strong> This
 %%% callback will <strong>not</strong> be called by the same process that
-%%% will will call the handle_request later if <code>{continue, State}</code>
+%%% will call the handle_request later if <code>{continue, State}</code>
 %%% is returned.
 %%% @end
 %%% ----------------------------------------------------------------------------
