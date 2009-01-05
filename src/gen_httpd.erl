@@ -82,7 +82,7 @@
 %%%
 %%% <strong>Note!</strong> This
 %%% callback will <strong>not</strong> be called by the same process that
-%%% will call the handle_request later if <code>{continue, State}</code>
+%%% will call the handle_request later if <code>{ok, State}</code>
 %%% is returned.
 %%% <pre>
 %%% Module:handle_request(Method, URI, Vsn, Headers, RequestBody, State) -> Result
