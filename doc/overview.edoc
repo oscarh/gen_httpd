@@ -1,0 +1,51 @@
+@copyright 2008 Martin Carlson, Oscar Hellström
+@author Martin Carlson <martin@erlang-consulting.com>
+@author Oscar Hellström <oscar@hellstrom.st> [http://oscar.hellstrom.st]
+@version {@version}, {@date}, {@time}
+
+@doc The gen_httpd behaviour implements a generic HTTP server interface.
+Since it's an OTP behaviour it fits well under a supervisor, which makes it
+very easy to embed in any application. gen_httpd tries to do as little as
+possible while still providing enough functionality to deal with the HTTP
+protocol, concurrency etc. 
+
+HTTP version 1.1 and 1.0 are supported. Persintant connections are controlled
+by the headers included in the response from the client. The default
+behaviour reads a request from a socket, wait for the application to return
+a response and then read the next request. It is also possibe to use a
+concurrent pipeline where a process is spawed for each request received on
+the socket.  The responses will be serialised by gen_httpd to the client.
+
+== Example ==
+<pre>
+-module(webserver).
+-behaviour(gen_httpd).
+
+-export([start_link/0]).
+-export([
+		init/1,
+		handle_request/7,
+		terminate/2
+	]).
+
+start_link() ->
+	gen_httpd:start_link(?MODULE, [], 9999, 300000, [], []).
+
+init(_Arg) ->
+	{ok, nil}.
+
+handle_request('GET', _URI, _Vsn, _Headers, _Body, _ConnInfo, State) ->
+	ResponseHeaders = [
+		{"Server", "gen_httpd example server"},
+		{"Content-Type", "text/html; charset=UTF-8"}
+	],
+	Body =
+		"&lt;html&gt;"
+		"&lt;head&gt;&lt;title&gt;gen_httpd&lt;/title&gt;&lt;/head&gt;"
+		"&lt;body&gt;Hello World!&lt;/body&gt;"
+		"&lt;/html&gt;",
+	{reply, 200, ResponseHeaders, Body, State}.
+
+terminate(_, _) ->
+	ok.
+</pre>

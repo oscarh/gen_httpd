@@ -1,6 +1,6 @@
 %%% ----------------------------------------------------------------------------
 %%% Copyright 2008
-%%% Martin Carlson, martin@erlang-consulting.com
+%%% Martin Carlson, martin@martinc.eu
 %%% Oscar Hellström, oscar@hellstrom.st
 %%%
 %%% All rights reserved
@@ -30,10 +30,12 @@
 %%% OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 %%% SUCH DAMAGE.
 %%% ----------------------------------------------------------------------------
--record(gen_httpd_conn, {
-		scheme,
-		remote_address,
-		remote_port,
-		local_address,
-		local_port
-	}).
+{application, httpd_test,  [
+	{description, "Generic HTTP daemon behaviour."},
+	{vsn, "0.2.0"}, 
+	{modules, [httpd_test_app,httpd_test_sup]},
+	{registered, []},
+	{mod, {httpd_test_app, []}},
+	{applications, [kernel, stdlib, gen_httpd]},
+	{env, []}
+]}.
