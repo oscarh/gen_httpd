@@ -3,7 +3,7 @@
 
 -record(ghtp_conn, {
 		parent,
-		reader_pid,
+		reader,
 		callback,
 		callback_arg,
 		socket,
@@ -24,9 +24,9 @@ start(Parent, Callback, CallbackArg, Socket, SockTimeout, PipelineLength) ->
 	},
 	process_flag(trap_exit, true),
 	Reader = spawn_link(ghtp_reader, start, [self(), Socket]),
-	loop(State#ghtp_conn{reader_pid = Reader}).
+	loop(State#ghtp_conn{reader = Reader}).
 
-loop(#ghtp_conn{reader_pid = Reader} = State) ->
+loop(#ghtp_conn{reader = Reader} = State) ->
 	Timeout = case ghtp_pl_queue:is_empty(State#ghtp_conn.pipeline_queue) of
 		true  -> State#ghtp_conn.sock_timeout;
 		false -> infinity
@@ -42,9 +42,7 @@ loop(#ghtp_conn{reader_pid = Reader} = State) ->
 			handle_exit(Pid, Reason, State)
 	after
 		Timeout ->
-			% Don't need to send these to the parent
-			unlink(State#ghtp_conn.parent),
-			exit(normal)
+			close_and_exit(State)
 	end,
 	loop(NextState).
 
@@ -59,3 +57,13 @@ handle_exit(_Response, _Reason, State) ->
 
 bad_request(State) ->
 	State.
+
+close_and_exit(#ghtp_conn{parent = Parent, reader = Reader, socket = Socket}) ->
+	% Kill the reader since it's no longer needed.
+	% (But we don't want to get the exit signal back.)
+	unlink(Reader),
+	exit(Reader, kill),
+	gen_tcpd:close(Socket),
+	% Don't need to send {'EXIT', self(), normal} to the parent
+	unlink(Parent),
+	exit(normal).
