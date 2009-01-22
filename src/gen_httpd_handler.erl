@@ -331,7 +331,7 @@ conn_info(Socket) ->
 		tcp -> http
 	end,
 	#gen_httpd_conn{
-		schema = Type,
+		scheme = Type,
 		remote_address = RemoteHost,
 		remote_port = RemotePort,
 		local_address = LocalHost,
