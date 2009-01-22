@@ -8,7 +8,6 @@
 		callback_arg,
 		socket,
 		sock_timeout,
-		pipeline_len,
 		pipeline_queue
 	}).
 
@@ -19,7 +18,6 @@ start(Parent, Callback, CallbackArg, Socket, SockTimeout, PipelineLength) ->
 		callback_arg = CallbackArg,
 		socket = Socket,
 		sock_timeout = SockTimeout,
-		pipeline_len = PipelineLength,
 		pipeline_queue = ghtp_pl_queue:new(PipelineLength)
 	},
 	process_flag(trap_exit, true),
@@ -32,12 +30,24 @@ loop(#ghtp_conn{reader = Reader} = State) ->
 		false -> infinity
 	end,
 	NextState = receive
+		% XXX:
+		% This would be changed to all the matches in the reader to try
+		% out active once instead of recv/2 in a reader process.
+		% The reader process might not scale as well as using active once
 		{request, Request} ->
 			handle_request(Request, State);
-		{response, Response} ->
-			handle_response(Response, State);
-		{'EXIT', Reader, bad_request} ->
-			handle_response(bad_request(State), State);
+		{response, Id, Response} ->
+			handle_response(Id, Response, State);
+		{'EXIT', Reader, {bad_request, Reason}} ->
+			handle_bad_request(Reason, State);
+		% XXX:
+		% Should we really just close and exit, or should we try to send
+		% responses back first? It might not be closed for the receiving
+		% part?
+		{'EXIT', Reader, closed} ->
+			close_and_exit(State);
+		{'EXIT', Reader, Reason} ->
+			exit(Reason); % XXX: is this good?
 		{'EXIT', Pid, Reason} ->
 			handle_exit(Pid, Reason, State)
 	after
@@ -49,13 +59,13 @@ loop(#ghtp_conn{reader = Reader} = State) ->
 handle_request(_Request, State) ->
 	State.
 
-handle_response(_Response, State) ->
+handle_response(_Id, _Response, State) ->
 	State.
 
 handle_exit(_Response, _Reason, State) ->
 	State.
 
-bad_request(State) ->
+handle_bad_request(_Reason, State) ->
 	State.
 
 close_and_exit(#ghtp_conn{parent = Parent, reader = Reader, socket = Socket}) ->

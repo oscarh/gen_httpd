@@ -10,7 +10,7 @@ start(ConnHandler, Socket) ->
 	loop(ConnHandler, Socket, #request{}).
 
 loop(ConnHandler, Socket, State) ->
-	NextState = case gen_tcp:recv(Socket, 0) of
+	NextState = case gen_tcpd:recv(Socket, 0) of
 		{ok, {http_request, Method, URI, Vsn}} ->
 			State#request{
 				method = maybe_atom_to_list(Method),
@@ -23,10 +23,12 @@ loop(ConnHandler, Socket, State) ->
 		{ok, http_eoh} ->
 			ConnHandler ! {request, State},
 			receive '$accept' -> #request{} end;
-		{error, {http_error, _}} ->
-			exit(bad_request);
+		{error, {http_error, Reason}} ->
+			exit({bad_request, Reason});
+		{error, closed} ->
+			exit(closed);
 		{error, Reason} ->
-			exit(Reason)
+			exit({gen_tcpd_recv, Reason})
 	end,
 	loop(ConnHandler, Socket, NextState).
 
