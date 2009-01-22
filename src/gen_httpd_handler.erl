@@ -46,7 +46,7 @@
 
 -import(gen_httpd_util, [header_value/2, header_value/3]).
 
--include("gen_httpd.hrl").
+-include("include/gen_httpd.hrl").
 
 start(Callback, CallbackArgs, Socket, Timeout, Pipeline) ->
 	process_flag(trap_exit, true),

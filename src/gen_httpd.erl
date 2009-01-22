@@ -69,7 +69,7 @@
 %%% <pre>
 %%% Module:init(ConnInfo, Arg) -> Result
 %%%     Types ConnInfo = #gen_httpd_conn{}
-%%%           Args = term()
+%%%           Arg = term()
 %%%           Result = {ok, State} | {stop, Reason}
 %%% </pre>
 %%% After {@link start_link/6} or {@link start_link/7} has been called this
@@ -174,7 +174,7 @@
 -export([wait_for_socket/1]).
 -export([behaviour_info/1]).
 
--record(state, {callback, callback_args, timeout, pipeline}).
+-record(state, {callback, callback_arg, timeout, pipeline}).
 
 %% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
 %%                               {ok, Pid}
@@ -201,8 +201,8 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
 	validate_sock_opts(SockOpts),
 	validate_options(Options),
 	Opts = [{active, false}, binary | SockOpts],
-	InitArgs = [Callback, CallbackArg, Timeout, Options],
-	gen_tcpd:start_link(?MODULE, InitArgs, tcp, Port, Opts).
+	InitArg = [Callback, CallbackArg, Timeout, Options],
+	gen_tcpd:start_link(?MODULE, InitArg, tcp, Port, Opts).
 	
 %% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts,
 %%                  SSL, Options) -> {ok, Pid}
@@ -224,8 +224,8 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSL, Options) ->
 	validate_sock_opts(SockOpts),
 	validate_options(Options),
 	Opts = [{active, false}, binary | SockOpts] ++ SSL,
-	InitArgs = [Callback, CallbackArg, Timeout, Options],
-	gen_tcpd:start_link(?MODULE, InitArgs, ssl, Port, Opts).
+	InitArg = [Callback, CallbackArg, Timeout, Options],
+	gen_tcpd:start_link(?MODULE, InitArg, ssl, Port, Opts).
 
 %% @spec port(Ref) -> {ok, Port}
 %% Ref = pid()
@@ -243,7 +243,7 @@ init([Callback, CallbackArg, Timeout, Options]) ->
 	Pipeline = proplists:get_value(concurrent_pipeline, Options, 1),
 	State = #state{
 		callback = Callback,
-		callback_args = CallbackArg,
+		callback_arg = CallbackArg,
 		timeout = Timeout,
 		pipeline = Pipeline
 	},
@@ -281,10 +281,10 @@ wait_for_socket(State) ->
 			Socket
 	end,
 	CB = State#state.callback,
-	CBArgs = State#state.callback_args,
+	CBArg = State#state.callback_arg,
 	Timeout = State#state.timeout,
 	Pipeline = State#state.pipeline,
-	case catch gen_httpd_handler:start(CB, CBArgs, Socket, Timeout, Pipeline) of
+	case catch ghtp_conn:start(self(), CB, CBArg, Socket, Timeout, Pipeline) of
 		{'EXIT', Reason} -> exit(Reason);
 		_                -> ok
 	end.

@@ -1,0 +1,1 @@
+-record(request, {method, uri, vsn, headers = []}).

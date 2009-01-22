@@ -1,6 +1,9 @@
 syntax: glob
 
-ebin/*
+erl_crash.dump
+doc/*.{html,css,png}
+doc/edoc-info
+ebin/*.{app,beam}
 *.swp
 *.swo
 depend
