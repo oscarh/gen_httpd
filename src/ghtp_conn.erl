@@ -11,6 +11,8 @@
 		pipeline_queue
 	}).
 
+-include("gen_httpd_int.hrl").
+
 start(Parent, Callback, CallbackArg, Socket, SockTimeout, PipelineLength) ->
 	State = #ghtp_conn{
 		parent = Parent,
@@ -56,8 +58,9 @@ loop(#ghtp_conn{reader = Reader} = State) ->
 	end,
 	loop(NextState).
 
-handle_request(_Request, State) ->
-	State.
+handle_request(Request, State) ->
+	Entity = entity(Request, State#ghtp_conn.socket),
+	ok.
 
 handle_response(_Id, _Response, State) ->
 	State.
@@ -67,6 +70,22 @@ handle_exit(_Response, _Reason, State) ->
 
 handle_bad_request(_Reason, State) ->
 	State.
+
+entity(#request{method = "POST", headers = Hdrs}, Socket) ->
+	{entity_type(Hdrs), Socket};
+entity(#request{method = "PUT", headers = Hdrs}, Socket) ->
+	{entity_type(Hdrs), Socket};
+entity(_, _) ->
+	undefined.
+
+entity_type(Hdrs) ->
+	TransferEncoding = string:to_lower(
+		ghtp_utils:header_value("transfer-encoding", Hdrs, "identity")
+	),
+	case TransferEncoding of
+		"identity" -> identity;
+		"chunked" -> chunked
+	end.
 
 close_and_exit(#ghtp_conn{parent = Parent, reader = Reader, socket = Socket}) ->
 	% Kill the reader since it's no longer needed.
