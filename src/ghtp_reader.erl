@@ -39,3 +39,16 @@ maybe_atom_to_list(Atom) when is_atom(Atom) ->
 	atom_to_list(Atom);
 maybe_atom_to_list(List) when is_list(List) ->
 	List.
+
+normalize_uri({abs_path, Path}) ->
+    Path;
+normalize_uri({absoluteURI, http, Host, Port, Path}) ->
+    lists:concat(["http://", Host, ":", Port, Path]);
+normalize_uri({absoluteURI, https, Host, Port, Path}) ->
+    lists:concat(["https://", Host, ":", Port, Path]);
+normalize_uri({scheme, Scheme, Path}) ->
+    lists:concat([Scheme, "://", Path]);
+normalize_uri('*') ->
+    "*";
+normalize_uri(URI) when is_list(URI) ->
+    URI.

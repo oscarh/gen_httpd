@@ -284,10 +284,7 @@ wait_for_socket(State) ->
 	CBArg = State#state.callback_arg,
 	Timeout = State#state.timeout,
 	Pipeline = State#state.pipeline,
-	case catch ghtp_conn:start(self(), CB, CBArg, Socket, Timeout, Pipeline) of
-		{'EXIT', Reason} -> exit(Reason);
-		_                -> ok
-	end.
+    ghtp_conn:init(self(), CB, CBArg, Socket, Timeout, Pipeline).
 
 validate_sock_opts([{active, _} = O | _]) ->
 	exit({bad_socket_option, O});
