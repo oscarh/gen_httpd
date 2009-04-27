@@ -138,10 +138,15 @@ handle_body(Hdrs, {partial, Part, Reader}) ->
 	{Type, UpdatedHdrs, Part, Reader};
 handle_body(Hdrs, Body) when is_list(Body); is_binary(Body) ->
 	UpdatedHdrs = case header_exists("content-length", Hdrs) of
-		false -> [{"Content-Length", iolist_size(Body)} | Hdrs];
-		true  -> Hdrs
+		false ->
+			Length = iolist_size(Body),
+			[{"Content-Length", integer_to_list(Length)} | Hdrs];
+		true  ->
+			Hdrs
 	end,
-	{complete, UpdatedHdrs, Body}.
+	{complete, UpdatedHdrs, Body};
+handle_body(_, Body) ->
+	erlang:error({bad_return, {body, Body}}).
 
 keep_alive(Vsn, ReqHdrs, RespHdrs) ->
 	% First of all, let the callback module decide
@@ -157,7 +162,7 @@ keep_alive(Vsn, ReqHdrs, RespHdrs) ->
 	end.
 
 pre_1_1_keep_alive(Hdrs) ->
-	case string:to_lower(header_value("connection", Hdrs)) of
+	case string:to_lower(header_value("connection", Hdrs, "")) of
 		"keep-alive" -> true;
 		_            -> false
 	end.

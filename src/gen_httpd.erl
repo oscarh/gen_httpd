@@ -72,13 +72,13 @@
 %%%           Arg = term()
 %%%           Result = {ok, State} | {stop, Reason}
 %%% </pre>
-%%% After {@link start_link/6} or {@link start_link/7} has been called this
+%%% After {@link start_link/5} or {@link start_link/6} has been called this
 %%% function is called by the new to initialise a state. If the the
 %%% initialisation is successful the function should return
 %%% <code>{ok, State}</code> where <code>State</code> is the state which
 %%% will be passed to the client in in the next callback.
 %%% <code>Arg</code> is the <code>CallbackArg</code> passed
-%%% to {@link start_link/6} or {@link start_link/7}.
+%%% to {@link start_link/5} or {@link start_link/6}.
 %%%
 %%% <strong>Note!</strong> This
 %%% callback will <strong>not</strong> be called by the same process that
@@ -169,22 +169,20 @@
 -module(gen_httpd).
 -behaviour(gen_tcpd).
 
--export([start_link/6, start_link/7, port/1]).
+-export([start_link/5, start_link/6, port/1]).
 -export([init/1, handle_connection/2, handle_info/2, terminate/2]).
 -export([wait_for_socket/1]).
 -export([behaviour_info/1]).
 
--record(state, {callback, callback_arg, timeout, pipeline}).
+-record(gen_httpd, {callback, callback_arg, timeout}).
 
-%% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
+%% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts) ->
 %%                               {ok, Pid}
 %% Callback = atom()
 %% CallbackArg = term()
 %% Port = integer()
 %% Timeout = integer()
 %% SockOpts = [SockOpt]
-%% Options = [Opt]
-%% Opt = {concurrent_pipeline, Length::integer()}
 %% Pid = pid()
 %% @doc Starts a gen_httpd process and links to it.
 %% The process created will call <code>Callback:init/2</code> with
@@ -197,11 +195,10 @@
 %% href="http://www.erlang.org/doc/man/gen_tcp.html"><code>gen_tcp</code></a>.
 %%
 %% This function should normally be called from a supervisor.
-start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
+start_link(Callback, CallbackArg, Port, Timeout, SockOpts) ->
 	validate_sock_opts(SockOpts),
-	validate_options(Options),
 	Opts = [{active, false}, binary | SockOpts],
-	InitArg = [Callback, CallbackArg, Timeout, Options],
+	InitArg = [Callback, CallbackArg, Timeout],
 	gen_tcpd:start_link(?MODULE, InitArg, tcp, Port, Opts).
 	
 %% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts,
@@ -220,11 +217,10 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
 %% <a href="http://www.erlang.org/doc/man/ssl.html"><code>ssl</code></a>.
 %%
 %% This function should normally be called from a supervisor.
-start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSL, Options) ->
+start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSL) ->
 	validate_sock_opts(SockOpts),
-	validate_options(Options),
 	Opts = [{active, false}, binary | SockOpts] ++ SSL,
-	InitArg = [Callback, CallbackArg, Timeout, Options],
+	InitArg = [Callback, CallbackArg, Timeout],
 	gen_tcpd:start_link(?MODULE, InitArg, ssl, Port, Opts).
 
 %% @spec port(Ref) -> {ok, Port}
@@ -238,14 +234,12 @@ port(Ref) ->
 	gen_tcpd:port(Ref).
 
 %% @hidden
-init([Callback, CallbackArg, Timeout, Options]) ->
+init([Callback, CallbackArg, Timeout]) ->
 	process_flag(trap_exit, true),
-	Pipeline = proplists:get_value(concurrent_pipeline, Options, 1),
-	State = #state{
+	State = #gen_httpd{
 		callback = Callback,
 		callback_arg = CallbackArg,
-		timeout = Timeout,
-		pipeline = Pipeline
+		timeout = Timeout
 	},
 	{ok, State}.
 
@@ -280,11 +274,10 @@ wait_for_socket(State) ->
 		{socket, Socket} ->
 			Socket
 	end,
-	CB = State#state.callback,
-	CBArg = State#state.callback_arg,
-	Timeout = State#state.timeout,
-	Pipeline = State#state.pipeline,
-    ghtp_conn:init(self(), CB, CBArg, Socket, Timeout, Pipeline).
+	CB = State#gen_httpd.callback,
+	CBArg = State#gen_httpd.callback_arg,
+	Timeout = State#gen_httpd.timeout,
+    ghtp_conn:init(self(), CB, CBArg, Socket, Timeout).
 
 validate_sock_opts([{active, _} = O | _]) ->
 	exit({bad_socket_option, O});
@@ -295,13 +288,6 @@ validate_sock_opts([list = O | _]) ->
 validate_sock_opts([_ | T]) ->
 	validate_sock_opts(T);
 validate_sock_opts([]) ->
-	ok.
-
-validate_options([{concurrent_pipeline, N}| T]) when is_integer(N) ->
-	validate_options(T);
-validate_options([O | _]) ->
-	exit({bad_option, O});
-validate_options([]) ->
 	ok.
 
 %% @hidden

@@ -1,30 +1,29 @@
--module(ghttpd_conn).
--export([init/6]).
+-module(ghtp_conn).
+-export([init/5]).
 
 -record(ghtp_conn, {
 		parent,
 		callback,
 		callback_state,
 		socket,
-		sock_timeout,
-		pipeline_queue
+		sock_timeout
 	}).
 
 -include("gen_httpd_int.hrl").
 -include("gen_httpd.hrl").
 
-init(Parent, Callback, CallbackArg, Socket, SockTimeout, PipelineLength) ->
+init(Parent, Callback, CallbackArg, Socket, SockTimeout) ->
 	CallbackState = case Callback:init(Socket, CallbackArg) of
 		{ok, S}        -> S;
-		{stop, Reason} -> exit(Reason)
+		{stop, Reason} -> exit(Reason);
+		Other          -> erlang:error({bad_return, Other})
 	end,
 	State = #ghtp_conn{
 		parent = Parent,
 		callback = Callback,
 		callback_state = CallbackState,
 		socket = Socket,
-		sock_timeout = SockTimeout,
-		pipeline_queue = ghtp_pl_queue:new(PipelineLength)
+		sock_timeout = SockTimeout
 	},
 	process_flag(trap_exit, true),
 	loop(State#ghtp_conn{callback_state = CallbackState}).
