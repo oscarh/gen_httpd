@@ -277,7 +277,7 @@ wait_for_socket(State) ->
 	CB = State#gen_httpd.callback,
 	CBArg = State#gen_httpd.callback_arg,
 	Timeout = State#gen_httpd.timeout,
-    ghtp_conn:init(self(), CB, CBArg, Socket, Timeout).
+	ghtp_conn:init(self(), CB, CBArg, Socket, Timeout).
 
 validate_sock_opts([{active, _} = O | _]) ->
 	exit({bad_socket_option, O});
