@@ -35,7 +35,8 @@
 %%% @author Oscar Hellström <oscar@hellstrom.st> [http://oscar.hellstrom.st]
 %%% @version {@version}, {@date}, {@time}
 %%% @doc
-%%% 
+%%% Utility module for gen_httpd itself, but also for applications using
+%%% gen_httpd.
 %%% @end
 %%% ----------------------------------------------------------------------------
 -module(ghtp_utils).
