@@ -211,6 +211,7 @@ reason(503) -> "Service Unavailable";
 reason(504) -> "Gateway Time-Out";
 reason(505) -> "HTTP Version not supported".
 
+%%% @private
 parse_header(Bin) ->
     Pos = find_hdr_delimiter(Bin, 0),
     ValueSize = size(Bin) - Pos - 4,
