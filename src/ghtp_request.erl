@@ -162,20 +162,56 @@ format_response(Vsn, Status, Hdrs, Body) ->
 	[format_response(Vsn, Status, Hdrs), Body].
 
 entity("POST", Hdrs, Socket) ->
-	{entity_type(Hdrs), Socket};
+    Type = entity_type(Hdrs),
+	{element(1, Type), entity_reader(Type, Socket)};
 entity("PUT", Hdrs, Socket) ->
-	{entity_type(Hdrs), Socket};
-entity(_, _, _) ->
-	undefined.
+    Type = entity_type(Hdrs),
+	{element(1, Type), entity_reader(Type, Socket)};
+entity(_, _, Socket) ->
+    {undefined, Socket}.
 
 entity_type(Hdrs) ->
-	TransferEncoding = string:to_lower(
-		header_value("transfer-encoding", Hdrs, "identity")
-	),
-	case TransferEncoding of
-		"identity" -> identity;
-		"chunked" -> chunked
-	end.
+    case header_value("content-length", Hdrs) of
+        undefined -> 
+            case header_value("transfer-encoding", Hdrs) of
+                undefined -> {undefined, nil};
+                "chunked" -> {chunked, nil}
+            end;
+        Length ->
+            {identity, list_to_integer(Length)}
+    end.
+
+entity_reader({identity, Length}, Socket) ->
+    fun(Timeout) -> gen_tcpd:recv(Socket, Length, Timeout) end;
+entity_reader({chunked, _}, Socket) ->
+    fun(Timeout) -> read_chunk(Socket, Timeout) end;
+entity_reader({undefined, _}, Socket) ->
+    Socket.
+
+read_chunk(Socket, Timeout) ->
+    Start = now(),
+    gen_tcpd:setopts(Socket, [{packet, line}]),
+    case gen_tcpd:recv(Socket, 0, Timeout) of
+        {ok, Line} ->
+            [AsciiChunkSize | _] = string:tokens(Line, " "),
+            ChunkSize = erlang:list_to_integer(AsciiChunkSize, 16),
+            if
+                ChunkSize > 0 ->
+
+                    TimeElapsed = calendar:now_diff(now(), Start) / 1000,
+                    NewTimeout = Timeout - TimeElapsed,
+                    case gen_tcp:recv(Socket, ChunkSize, NewTimeout) of
+                        {ok, Data} ->
+                            {chunk, Data};
+                        Other ->
+                            Other
+                    end;
+                ChunkSize < 1 ->
+                    last_chunk
+            end;
+        Other ->
+            Other
+    end.
 
 handle_body(Hdrs, {partial, Reader}) ->
 	Type = case header_exists("content-length", Hdrs) of
