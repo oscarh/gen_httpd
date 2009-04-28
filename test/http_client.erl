@@ -5,8 +5,10 @@
         connect/3,
 		format_request/4,
 		format_request/5,
+		format_headers/1,
 		receive_response/1,
-		receive_response/2
+		receive_response/2,
+		format_chunk/1
 	]).
 
 connect(Port, Mod) ->
@@ -29,6 +31,11 @@ format_headers([{Name, Value} | T], Acc) ->
 	format_headers(T, [Name, $:, $\ , Value, "\r\n" | Acc]);
 format_headers([], Acc) ->
 	Acc.
+
+format_chunk(Data) ->
+	Size = iolist_size(Data),
+	HexSize = erlang:integer_to_list(Size, 16),
+	[HexSize, "\r\n", Data, "\r\n"].
 
 receive_response(Socket) ->
     receive_response(Socket, gen_tcp).
