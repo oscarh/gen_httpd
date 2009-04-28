@@ -1,10 +1,18 @@
 -module(http_client).
 
 -export([
+        connect/2,
+        connect/3,
 		format_request/4,
 		receive_response/1,
 		receive_response/2
 	]).
+
+connect(Port, Mod) ->
+    connect(Port, Mod, []).
+
+connect(Port, Mod, Opts) ->
+    Mod:connect({127,0,0,1}, Port, [{active, false} | Opts]).
 
 format_request(Method, Path, Vsn, Headers) ->
     format_request(Method, Path, Vsn, Headers, []).

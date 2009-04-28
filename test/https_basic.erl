@@ -8,7 +8,6 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(LOCALHOST, {127,0,0,1}).
 -define(HTTPS_RESPONSE, "HTTPS response string").
 
 %%% eunit tests
@@ -28,7 +27,7 @@ stop_https({Pid, _}) ->
 
 simple_request({_, Port}) ->
 	Opts = [{verify, 0}, {active, false}, binary],
-	{ok, Socket} = ssl:connect(?LOCALHOST, Port, Opts),
+	{ok, Socket} = http_client:connect(Port, ssl, Opts),
 	Request = http_client:format_request("GET", "/ssl", "HTTP/1.1", []),
 	ssl:send(Socket, Request),
 	ssl:getopts(Socket, [active]),
