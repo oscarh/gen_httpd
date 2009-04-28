@@ -33,7 +33,6 @@ loop(State) ->
 	loop(State#ghtp_conn{callback_state = NewCBState}).
 
 read_request(#ghtp_conn{socket = Socket} = State) ->
-	statistics(wall_clock),
 	gen_tcpd:setopts(Socket, [{packet, http}]),
 	Timeout = State#ghtp_conn.sock_timeout,
 	TimerRef = erlang:send_after(Timeout, self(), timeout),
