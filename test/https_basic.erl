@@ -36,7 +36,8 @@ simple_request({_, Port}) ->
 	StatusCode = element(1, Status),
 	Body = element(4, Response),
 	?assertEqual(200, StatusCode),
-	?assertEqual(<<?HTTPS_RESPONSE>>, Body).
+	?assertEqual(<<?HTTPS_RESPONSE>>, Body),
+	ssl:close(Socket).
 
 %%% gen_httpd callbacks
 init(_, nil) ->
