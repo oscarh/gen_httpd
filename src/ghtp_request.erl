@@ -23,10 +23,32 @@ execute(CB, CBState, Socket, Request) ->
 	Vsn = Request#request.vsn,
 	URI = Request#request.uri,
 	ReqHdrs = Request#request.headers,
-	Entity = entity(Request, Socket),
+	NextCBState  = case expect_continue(ReqHdrs) of
+		true ->
+			handle_continue(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState);
+		false ->
+			CBState
+	end,
+	hadle_request(Socket, Method, URI, Vsn, ReqHdrs, CB, NextCBState).
+
+hadle_request(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState) ->
+	Entity = entity(Method, ReqHdrs, Socket),
 	case CB:handle_request(Method, URI, Vsn, ReqHdrs, Entity, CBState) of
 		{reply, Status, ReplyHdrs, Body, NextCBState} ->
 			KeepAlive =
+				handle_reply(Socket, Vsn, ReqHdrs, Status, ReplyHdrs, Body),
+			exit({done, KeepAlive, NextCBState});
+		Other ->
+			erlang:error({bad_return, Other})
+	end.
+
+handle_continue(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState) ->
+	case CB:handle_continue(Method, URI, Vsn, ReqHdrs, CBState) of
+		{continue, RespHdrs, NextCBStateState} ->
+			send_status_and_hdr(Socket, Vsn, 100, RespHdrs),
+			NextCBStateState;
+		{reply, Status, ReplyHdrs, Body, NextCBState} -> 
+			KeepAlive = 
 				handle_reply(Socket, Vsn, ReqHdrs, Status, ReplyHdrs, Body),
 			exit({done, KeepAlive, NextCBState});
 		Other ->
@@ -107,11 +129,11 @@ format_response(Vsn, Status, Hdrs) ->
 format_response(Vsn, Status, Hdrs, Body) ->
 	[format_response(Vsn, Status, Hdrs), Body].
 
-entity(#request{method = "POST", headers = Hdrs}, Socket) ->
+entity("POST", Hdrs, Socket) ->
 	{entity_type(Hdrs), Socket};
-entity(#request{method = "PUT", headers = Hdrs}, Socket) ->
+entity("PUT", Hdrs, Socket) ->
 	{entity_type(Hdrs), Socket};
-entity(_, _) ->
+entity(_, _, _) ->
 	undefined.
 
 entity_type(Hdrs) ->
@@ -147,6 +169,13 @@ handle_body(Hdrs, Body) when is_list(Body); is_binary(Body) ->
 	{complete, UpdatedHdrs, Body};
 handle_body(_, Body) ->
 	erlang:error({bad_return, {body, Body}}).
+
+expect_continue(Headers) ->
+	case header_value("expect", Headers, undefined) of
+		"100-continue" -> true;
+		undefined      -> false;
+		_              -> false
+	end.
 
 keep_alive(Vsn, ReqHdrs, RespHdrs) ->
 	% First of all, let the callback module decide
