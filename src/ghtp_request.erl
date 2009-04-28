@@ -193,25 +193,38 @@ read_chunk(Socket, Timeout) ->
     gen_tcpd:setopts(Socket, [{packet, line}]),
     case gen_tcpd:recv(Socket, 0, Timeout) of
         {ok, Line} ->
-            [AsciiChunkSize | _] = string:tokens(Line, " "),
+            String = binary_to_list(Line),
+            [AsciiChunkSize | _] = string:tokens(String, " \r\n"),
             ChunkSize = erlang:list_to_integer(AsciiChunkSize, 16),
+            TimeElapsed = timer:now_diff(now(), Start) div 1000,
+            NewTimeout = Timeout - TimeElapsed,
             if
                 ChunkSize > 0 ->
-
-                    TimeElapsed = calendar:now_diff(now(), Start) / 1000,
-                    NewTimeout = Timeout - TimeElapsed,
-                    case gen_tcp:recv(Socket, ChunkSize, NewTimeout) of
-                        {ok, Data} ->
+                    gen_tcpd:setopts(Socket, [{packet, raw}]),
+                    case gen_tcpd:recv(Socket, ChunkSize + 2, NewTimeout) of
+                        {ok, <<Data:ChunkSize/binary, $\r, $\n>>} ->
                             {chunk, Data};
                         Other ->
                             Other
                     end;
-                ChunkSize < 1 ->
-                    last_chunk
+                ChunkSize =:= 0 ->
+					read_trailers(Socket, [], NewTimeout)
             end;
         Other ->
             Other
     end.
+
+read_trailers(Socket, Acc, Timeout) ->
+	Start = now(),
+	case gen_tcpd:recv(Socket, 0, Timeout) of
+		{ok, <<"\r\n">>} ->
+			{trailers, Acc};
+		{ok, Bin} ->
+			Hdr = ghtp_utils:parse_header(Bin),
+            TimeElapsed = timer:now_diff(now(), Start) div 1000,
+            NewTimeout = Timeout - TimeElapsed,
+			read_trailers(Socket, [Hdr | Acc], NewTimeout)
+	end.
 
 handle_body(Hdrs, {partial, Reader}) ->
 	Type = case header_exists("content-length", Hdrs) of
