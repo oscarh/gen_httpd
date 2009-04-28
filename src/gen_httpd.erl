@@ -37,13 +37,6 @@
 %%% @doc
 %%% The gen_httpd behaivour implements a generic HTTP server interface.
 %%%
-%%% There are currently two modes of operation sequential processing of
-%%% requests and concurrent pipeliens. With the sequential processsing a
-%%% each request have to be processed and a response must be returned before
-%%% the next request can be processed, even if the client have pipelined
-%%% several requests. In the concurrent pipeline mode the server will read
-%%% as many requests as allowed and process them in paralell.
-%%%
 %%% <pre>
 %%% gen_httpd module            Callback module
 %%% ----------------            ---------------
@@ -53,37 +46,33 @@
 %%% -                    -----> Module:terminate/2
 %%% </pre>
 %%%
-%%% == Concurrent pipeline mode ==
-%%% If a client is pipelining requests the server can process them in
-%%% paralell as long as the responses are serialised. There is a bit of
-%%% overhead on the server if this mode is selected due to the serialisation
-%%% of responses. Two processes will be created for each client connection,
-%%% and each request will processed in an independent process.
-%%%
-%%% Since responses must be returned in the same order as the requests are
-%%% received the responses are serialised and if an early request takes a long
-%%% time to return, the responses will wait in a response queue and the
-%%% pipeline is blocked.
-%%%
 %%% == Callbacks ==
 %%% <pre>
-%%% Module:init(ConnInfo, Arg) -> Result
+%%% Module:init(Socket, Arg) -> Result
 %%%     Types ConnInfo = #gen_httpd_conn{}
 %%%           Arg = term()
 %%%           Result = {ok, State} | {stop, Reason}
 %%% </pre>
-%%% After {@link start_link/5} or {@link start_link/6} has been called this
-%%% function is called by the new to initialise a state. If the the
-%%% initialisation is successful the function should return
-%%% <code>{ok, State}</code> where <code>State</code> is the state which
-%%% will be passed to the client in in the next callback.
+%%% The init function is called every time a new connection is established
+%%% to a client. The <code>Socket</code> argument is a <code>gen_tcpd</code>
+%%% (note the d in gen_tcpd) data structure representing the socket. This
+%%% data structure can be used to call functions such as
+%%% {@link //gen_tcpd/gen_tcpd:peername/1},
+%%% {@link //gen_tcpd/gen_tcpd:sockname/1} etc.
+%%% 
 %%% <code>Arg</code> is the <code>CallbackArg</code> passed
 %%% to {@link start_link/5} or {@link start_link/6}.
+%%%
+%%% This function should return <code>{ok, State}</code> where
+%%% <code>State</code> is the State which will be passed to
+%%% <a href="#callback:handle_request/5"> <code>handle_request/5</code>
 %%%
 %%% <strong>Note!</strong> This
 %%% callback will <strong>not</strong> be called by the same process that
 %%% will call the handle_request later if <code>{ok, State}</code>
 %%% is returned.
+%%%
+%%% <a name="callback:handle_request/5">
 %%% <pre>
 %%% Module:handle_request(Method, URI, Vsn, Headers, RequestBody, State) -> Result
 %%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
@@ -107,22 +96,6 @@
 %%% </pre>
 %%% Handle a HTTP request.
 %%%
-%%% In case of POST or PUT requests, the body is received in
-%%% <code>RequestBody</code>.
-%%% For all requests that don't have a entity, the <code>RequestBody</code>
-%%% should be ignored. If the <code>RequestBody</code> is <code>{chunked,
-%%% Reader}</code> the client is using chunked Transfer-Encoding to transfer
-%%% data with the request.
-%%% In this case every call to the <code>Reader</code> fun will
-%%% return a chunk in the form <code>{ok, Data}</code> where
-%%% <code>data</code> is a binary(). When the last chunk has been read, the
-%%% next call to <code>Reader</code> will return
-%%% <code>{error, last_chunk}</code>.
-%%% If the <code>Reader</code> fails due to a protocol error it will return
-%%% <code>{error, bad_request}</code>. <code>Reason</code> can also be
-%%% anything that <code>gen_tcp</code> returns as error codes when calling
-%%% recv/2 in TCP mode and what <code>ssl</code> returns as error codes
-%%% when calling recv/2 in ssl mode.
 %%%
 %%% <pre>
 %%% Module:handle_continue(Method, URI, Vsn, Headers, State) -> Result
@@ -137,7 +110,8 @@
 %%%           Headers = [{Name, Value}]
 %%%           Name = Value = string()
 %%%           State = term()
-%%%           Result = {continue, State} | {reply, Status, Headers, Body, State}
+%%%           Result = {continue, Headers, NextState} |
+%%%                    {reply, Status, Headers, Body, State}
 %%%           Status = StatusCode | {StatusCode, Description}
 %%%           StatusCode = integer()
 %%%           Description = string()
