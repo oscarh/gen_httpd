@@ -145,7 +145,6 @@
 
 -export([start_link/5, start_link/6, port/1, stop/1]).
 -export([init/1, handle_connection/2, handle_info/2, terminate/2]).
--export([wait_for_socket/1]).
 -export([behaviour_info/1]).
 
 -record(gen_httpd, {callback, callback_arg, timeout}).
@@ -173,7 +172,7 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts) ->
 	validate_sock_opts(SockOpts),
 	Opts = [{active, false}, binary | SockOpts],
 	InitArg = [Callback, CallbackArg, Timeout],
-	gen_tcpd:start_link(?MODULE, InitArg, tcp, Port, Opts).
+	gen_tcpd:start_link(?MODULE, InitArg, tcp, Port, 20, Opts).
 	
 %% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts,
 %%                  SSL, Options) -> {ok, Pid}
@@ -223,39 +222,24 @@ init([Callback, CallbackArg, Timeout]) ->
 
 %% @hidden
 handle_connection(Socket, State) ->
-	Pid = spawn_link(?MODULE, wait_for_socket, [State]),
-	ok = gen_tcpd:controlling_process(Socket, Pid),
-	Pid ! {socket, Socket},
-	{noreply, State}.
-
-%% @hidden
-handle_info({'EXIT', _, closed}, State) ->
-	{noreply, State};
-handle_info({'EXIT', _, tcp_timeout}, State) ->
-	{noreply, State};
-handle_info({'EXIT', _, normal}, State) ->
-	{noreply, State};
-handle_info({'EXIT', Pid, Reason}, State) ->
-	Report = ["HTTP handler died", {pid, Pid}, {reason, Reason}],
-	error_logger:error_report(Report),
-	{noreply, State};
-handle_info(_, State) ->
-	{noreply, State}.
-
-%% @hidden
-terminate(_Reason, _State) ->
-	ok.
-
-%% @private
-wait_for_socket(State) ->
-	receive
-		{socket, Socket} ->
-			Socket
-	end,
 	CB = State#gen_httpd.callback,
 	CBArg = State#gen_httpd.callback_arg,
 	Timeout = State#gen_httpd.timeout,
 	ghtp_conn:init(self(), CB, CBArg, Socket, Timeout).
+
+%% @hidden
+handle_info({'EXIT', _, normal}, _) ->
+	noreply;
+handle_info({'EXIT', Pid, Reason}, _) ->
+	Report = ["HTTP handler died", {pid, Pid}, {reason, Reason}],
+	error_logger:error_report(Report),
+	noreply;
+handle_info(_, _) ->
+	noreply.
+
+%% @hidden
+terminate(_Reason, _State) ->
+	ok.
 
 validate_sock_opts([{active, _} = O | _]) ->
 	exit({bad_socket_option, O});

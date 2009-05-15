@@ -1,5 +1,6 @@
 -module(ghtp_conn).
 -export([init/5]).
+-export([request_loop/1]).
 
 -record(ghtp_conn, {
 		parent,
@@ -19,18 +20,38 @@ init(Parent, Callback, CallbackArg, Socket, SockTimeout) ->
 		Other          -> erlang:error({bad_return, Other})
 	end,
 	State = #ghtp_conn{
-		parent = Parent,
+		parent = self(),
 		callback = Callback,
 		callback_state = CallbackState,
 		socket = Socket,
 		sock_timeout = SockTimeout
 	},
 	process_flag(trap_exit, true),
-	loop(State#ghtp_conn{callback_state = CallbackState}).
+	spawn_link(?MODULE, request_loop, [State]),
+	wait(Parent, Socket).
 
-loop(State) ->
+wait(Parent, Socket) ->
+	% All we want to do here is wait for the socket to be closed for some
+	% reason, or for a shutdown.
+	receive
+		{'EXIT', Parent, Reason} ->
+			exit(Reason);
+		{'EXIT', _, client_timeout} ->
+			exit(normal);
+		{'EXIT', _, client_closed} ->
+			exit(normal);
+		{'EXIT', Pid, Reason} ->
+			handle_internal_error(Pid, Reason, Socket)
+	end.
+
+request_loop(#ghtp_conn{parent = Parent} = State) ->
+	process_flag(trap_exit, true),
+	link(Parent),
 	NewCBState = execute_request(read_request(State), State),
-	loop(State#ghtp_conn{callback_state = NewCBState}).
+	unlink(Parent),
+	NewState = State#ghtp_conn{callback_state = NewCBState},
+	% This is done to immediately free the memory used by the request
+	spawn(?MODULE, request_loop, [NewState]).
 
 read_request(#ghtp_conn{socket = Socket} = State) ->
 	gen_tcpd:setopts(Socket, [{packet, http}]),
@@ -66,7 +87,7 @@ read_request_loop(State, TimerRef, Timeout, Request) ->
 		{ok, http_eoh} ->
 			Request;
 		{error, {http_error, HTTPReason} = Reason} ->
-			handle_bad_request(Request, HTTPReason, State),
+			handle_bad_request(Request, HTTPReason, State#ghtp_conn.socket),
 			terminate(Reason, State);
 		{error, timeout} ->
 			terminate(client_timeout, State);
@@ -96,7 +117,12 @@ execute_request(Request, State) ->
 			terminate(Reason, State)
 	end.
 
-handle_bad_request(_Request, _Reason, _State) ->
+handle_bad_request(_Request, _Reason, _Socket) ->
+	% TODO: reply here
+	ok.
+
+handle_internal_error(_Pid, _Reason, _Socket) ->
+	% TODO: error report
 	% TODO: reply here
 	ok.
 
