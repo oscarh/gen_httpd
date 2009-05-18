@@ -37,13 +37,6 @@
 %%% @doc
 %%% The gen_httpd behaivour implements a generic HTTP server interface.
 %%%
-%%% There are currently two modes of operation sequential processing of
-%%% requests and concurrent pipeliens. With the sequential processsing a
-%%% each request have to be processed and a response must be returned before
-%%% the next request can be processed, even if the client have pipelined
-%%% several requests. In the concurrent pipeline mode the server will read
-%%% as many requests as allowed and process them in paralell.
-%%%
 %%% <pre>
 %%% gen_httpd module            Callback module
 %%% ----------------            ---------------
@@ -53,37 +46,33 @@
 %%% -                    -----> Module:terminate/2
 %%% </pre>
 %%%
-%%% == Concurrent pipeline mode ==
-%%% If a client is pipelining requests the server can process them in
-%%% paralell as long as the responses are serialised. There is a bit of
-%%% overhead on the server if this mode is selected due to the serialisation
-%%% of responses. Two processes will be created for each client connection,
-%%% and each request will processed in an independent process.
-%%%
-%%% Since responses must be returned in the same order as the requests are
-%%% received the responses are serialised and if an early request takes a long
-%%% time to return, the responses will wait in a response queue and the
-%%% pipeline is blocked.
-%%%
 %%% == Callbacks ==
 %%% <pre>
-%%% Module:init(ConnInfo, Arg) -> Result
+%%% Module:init(Socket, Arg) -> Result
 %%%     Types ConnInfo = #gen_httpd_conn{}
 %%%           Arg = term()
 %%%           Result = {ok, State} | {stop, Reason}
 %%% </pre>
-%%% After {@link start_link/6} or {@link start_link/7} has been called this
-%%% function is called by the new to initialise a state. If the the
-%%% initialisation is successful the function should return
-%%% <code>{ok, State}</code> where <code>State</code> is the state which
-%%% will be passed to the client in in the next callback.
+%%% The init function is called every time a new connection is established
+%%% to a client. The <code>Socket</code> argument is a <code>gen_tcpd</code>
+%%% (note the d in gen_tcpd) data structure representing the socket. This
+%%% data structure can be used to call functions such as
+%%% {@link //gen_tcpd/gen_tcpd:peername/1},
+%%% {@link //gen_tcpd/gen_tcpd:sockname/1} etc.
+%%% 
 %%% <code>Arg</code> is the <code>CallbackArg</code> passed
-%%% to {@link start_link/6} or {@link start_link/7}.
+%%% to {@link start_link/5} or {@link start_link/6}.
+%%%
+%%% This function should return <code>{ok, State}</code> where
+%%% <code>State</code> is the State which will be passed to
+%%% <a href="#callback:handle_request/5"> <code>handle_request/5</code>
 %%%
 %%% <strong>Note!</strong> This
 %%% callback will <strong>not</strong> be called by the same process that
 %%% will call the handle_request later if <code>{ok, State}</code>
 %%% is returned.
+%%%
+%%% <a name="callback:handle_request/5">
 %%% <pre>
 %%% Module:handle_request(Method, URI, Vsn, Headers, RequestBody, State) -> Result
 %%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
@@ -107,22 +96,6 @@
 %%% </pre>
 %%% Handle a HTTP request.
 %%%
-%%% In case of POST or PUT requests, the body is received in
-%%% <code>RequestBody</code>.
-%%% For all requests that don't have a entity, the <code>RequestBody</code>
-%%% should be ignored. If the <code>RequestBody</code> is <code>{chunked,
-%%% Reader}</code> the client is using chunked Transfer-Encoding to transfer
-%%% data with the request.
-%%% In this case every call to the <code>Reader</code> fun will
-%%% return a chunk in the form <code>{ok, Data}</code> where
-%%% <code>data</code> is a binary(). When the last chunk has been read, the
-%%% next call to <code>Reader</code> will return
-%%% <code>{error, last_chunk}</code>.
-%%% If the <code>Reader</code> fails due to a protocol error it will return
-%%% <code>{error, bad_request}</code>. <code>Reason</code> can also be
-%%% anything that <code>gen_tcp</code> returns as error codes when calling
-%%% recv/2 in TCP mode and what <code>ssl</code> returns as error codes
-%%% when calling recv/2 in ssl mode.
 %%%
 %%% <pre>
 %%% Module:handle_continue(Method, URI, Vsn, Headers, State) -> Result
@@ -137,7 +110,8 @@
 %%%           Headers = [{Name, Value}]
 %%%           Name = Value = string()
 %%%           State = term()
-%%%           Result = {continue, State} | {reply, Status, Headers, Body, State}
+%%%           Result = {continue, Headers, NextState} |
+%%%                    {reply, Status, Headers, Body, State}
 %%%           Status = StatusCode | {StatusCode, Description}
 %%%           StatusCode = integer()
 %%%           Description = string()
@@ -169,22 +143,19 @@
 -module(gen_httpd).
 -behaviour(gen_tcpd).
 
--export([start_link/6, start_link/7, port/1]).
+-export([start_link/5, start_link/6, port/1, stop/1]).
 -export([init/1, handle_connection/2, handle_info/2, terminate/2]).
--export([wait_for_socket/1]).
 -export([behaviour_info/1]).
 
--record(state, {callback, callback_arg, timeout, pipeline}).
+-record(gen_httpd, {callback, callback_arg, timeout}).
 
-%% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
+%% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts) ->
 %%                               {ok, Pid}
 %% Callback = atom()
 %% CallbackArg = term()
 %% Port = integer()
 %% Timeout = integer()
 %% SockOpts = [SockOpt]
-%% Options = [Opt]
-%% Opt = {concurrent_pipeline, Length::integer()}
 %% Pid = pid()
 %% @doc Starts a gen_httpd process and links to it.
 %% The process created will call <code>Callback:init/2</code> with
@@ -197,12 +168,11 @@
 %% href="http://www.erlang.org/doc/man/gen_tcp.html"><code>gen_tcp</code></a>.
 %%
 %% This function should normally be called from a supervisor.
-start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
+start_link(Callback, CallbackArg, Port, Timeout, SockOpts) ->
 	validate_sock_opts(SockOpts),
-	validate_options(Options),
 	Opts = [{active, false}, binary | SockOpts],
-	InitArg = [Callback, CallbackArg, Timeout, Options],
-	gen_tcpd:start_link(?MODULE, InitArg, tcp, Port, Opts).
+	InitArg = [Callback, CallbackArg, Timeout],
+	gen_tcpd:start_link(?MODULE, InitArg, tcp, Port, 20, Opts).
 	
 %% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts,
 %%                  SSL, Options) -> {ok, Pid}
@@ -220,11 +190,10 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts, Options) ->
 %% <a href="http://www.erlang.org/doc/man/ssl.html"><code>ssl</code></a>.
 %%
 %% This function should normally be called from a supervisor.
-start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSL, Options) ->
+start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSL) ->
 	validate_sock_opts(SockOpts),
-	validate_options(Options),
 	Opts = [{active, false}, binary | SockOpts] ++ SSL,
-	InitArg = [Callback, CallbackArg, Timeout, Options],
+	InitArg = [Callback, CallbackArg, Timeout],
 	gen_tcpd:start_link(?MODULE, InitArg, ssl, Port, Opts).
 
 %% @spec port(Ref) -> {ok, Port}
@@ -233,61 +202,44 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSL, Options) ->
 %% @doc
 %% Returns the port a gen_tcpd process is listening on.
 %% @end
--spec port(pid()) -> {ok, 1..65535}.
+-spec port(pid()) -> 1..65535.
 port(Ref) ->
 	gen_tcpd:port(Ref).
 
+-spec stop(pid()) -> ok.
+stop(Pid) ->
+    gen_tcpd:stop(Pid).
+
 %% @hidden
-init([Callback, CallbackArg, Timeout, Options]) ->
+init([Callback, CallbackArg, Timeout]) ->
 	process_flag(trap_exit, true),
-	Pipeline = proplists:get_value(concurrent_pipeline, Options, 1),
-	State = #state{
+	State = #gen_httpd{
 		callback = Callback,
 		callback_arg = CallbackArg,
-		timeout = Timeout,
-		pipeline = Pipeline
+		timeout = Timeout
 	},
 	{ok, State}.
 
 %% @hidden
 handle_connection(Socket, State) ->
-	Pid = spawn_link(?MODULE, wait_for_socket, [State]),
-	ok = gen_tcpd:controlling_process(Socket, Pid),
-	Pid ! {socket, Socket},
-	{noreply, State}.
+	CB = State#gen_httpd.callback,
+	CBArg = State#gen_httpd.callback_arg,
+	Timeout = State#gen_httpd.timeout,
+	ghtp_conn:init(self(), CB, CBArg, Socket, Timeout).
 
 %% @hidden
-handle_info({'EXIT', _, closed}, State) ->
-	{noreply, State};
-handle_info({'EXIT', _, tcp_timeout}, State) ->
-	{noreply, State};
-handle_info({'EXIT', _, normal}, State) ->
-	{noreply, State};
-handle_info({'EXIT', Pid, Reason}, State) ->
+handle_info({'EXIT', _, normal}, _) ->
+	noreply;
+handle_info({'EXIT', Pid, Reason}, _) ->
 	Report = ["HTTP handler died", {pid, Pid}, {reason, Reason}],
 	error_logger:error_report(Report),
-	{noreply, State};
-handle_info(_, State) ->
-	{noreply, State}.
+	noreply;
+handle_info(_, _) ->
+	noreply.
 
 %% @hidden
 terminate(_Reason, _State) ->
 	ok.
-
-%% @private
-wait_for_socket(State) ->
-	receive
-		{socket, Socket} ->
-			Socket
-	end,
-	CB = State#state.callback,
-	CBArg = State#state.callback_arg,
-	Timeout = State#state.timeout,
-	Pipeline = State#state.pipeline,
-	case catch ghtp_conn:start(self(), CB, CBArg, Socket, Timeout, Pipeline) of
-		{'EXIT', Reason} -> exit(Reason);
-		_                -> ok
-	end.
 
 validate_sock_opts([{active, _} = O | _]) ->
 	exit({bad_socket_option, O});
@@ -298,13 +250,6 @@ validate_sock_opts([list = O | _]) ->
 validate_sock_opts([_ | T]) ->
 	validate_sock_opts(T);
 validate_sock_opts([]) ->
-	ok.
-
-validate_options([{concurrent_pipeline, N}| T]) when is_integer(N) ->
-	validate_options(T);
-validate_options([O | _]) ->
-	exit({bad_option, O});
-validate_options([]) ->
 	ok.
 
 %% @hidden

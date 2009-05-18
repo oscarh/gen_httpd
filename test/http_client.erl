@@ -1,83 +1,74 @@
 -module(http_client).
 
 -export([
-		send_request/4,
+        connect/2,
+        connect/3,
+		format_request/4,
+		format_request/5,
+		format_headers/1,
 		receive_response/1,
-		close_connections/0
+		receive_response/2,
+		format_chunk/1
 	]).
 
-send_request(URI, Method, Headers, Body) ->
-	{_, Server, Port, Path} = parse_uri(URI),
-	StatusLine = [Method, $\ , Path, $\ , "HTTP/1.1\r\n"],
-	Request = [StatusLine, headers(Headers, iolist_size(Body)), Body],
-	send(Server, Port, Request).
+connect(Port, Mod) ->
+    connect(Port, Mod, []).
 
-send(Server, Port, Request) ->
-	case ets:info(connections) of
-		undefined -> ets:new(connections, [named_table]);
-		_         -> ok
-	end,
-	Socket = case ets:lookup(connections, {Server, Port}) of
-		[{_, S}] ->
-			S;
-		[] ->
-			Sockopts = [binary, {active, false}, binary],
-			{ok, S} = gen_tcp:connect(Server, Port, Sockopts),
-			ets:insert(connections, {{Server, Port}, S}),
-			S
-	end,
-	case gen_tcp:send(Socket, Request) of
-		{error, _} ->
-			ets:delete(connections, {Server, Port}),
-			send(Server, Port, Request);
-		ok ->
-			Socket
-	end.
+connect(Port, Mod, Opts) ->
+    Mod:connect({127,0,0,1}, Port, [{active, false}, binary | Opts]).
 
-close_connections() ->
-	case ets:info(connections) of
-		undefined ->
-			ok;
-		_ ->
-			ets:foldr(fun({_, Socket}, _) ->
-						gen_tcp:close(Socket)
-				end, nil, connections),
-			ets:delete(connections)
-	end.
+format_request(Method, Path, Vsn, Headers) ->
+    format_request(Method, Path, Vsn, Headers, []).
 
-headers(Headers, ContentLength) ->
-	headers(Headers, ["\r\n"], ContentLength).
+format_request(Method, Path, Vsn, Headers, Body) ->
+	StatusLine = [Method, $\ , Path, $\ , Vsn , "\r\n"],
+	[StatusLine, format_headers(Headers), Body].
 
-headers([{Name, Value} | T], Acc, ContentLength) ->
-	headers(T, [Name, $:, $\ , Value, "\r\n" | Acc], ContentLength);
-headers([], Acc, ContentLength) when ContentLength > 0 ->
-	["Content-Length: ", integer_to_list(ContentLength), Acc, "\r\n"];
-headers([], Acc, _) ->
+format_headers(Headers) ->
+	format_headers(Headers, ["\r\n"]).
+
+format_headers([{Name, Value} | T], Acc) ->
+	format_headers(T, [Name, $:, $\ , Value, "\r\n" | Acc]);
+format_headers([], Acc) ->
 	Acc.
 
-receive_response(Socket) ->
-	inet:setopts(Socket, [{packet, http}]),
-	recv(Socket, nil, 0, [], 0, <<>>).
+format_chunk(Data) ->
+	Size = iolist_size(Data),
+	HexSize = erlang:integer_to_list(Size, 16),
+	[HexSize, "\r\n", Data, "\r\n"].
 
-recv(Socket, Vsn0, Status0, Hdrs0, ContentLength, Body0) ->
-	case gen_tcp:recv(Socket, 0, 10000) of
+receive_response(Socket) ->
+    receive_response(Socket, gen_tcp).
+
+receive_response(Socket, Mod) ->
+	setopts(Socket, Mod, [{packet, http}]),
+	recv(Socket, Mod, nil, 0, [], 0, <<>>).
+
+setopts(Socket, gen_tcp, Options) ->
+    inet:setopts(Socket, Options);
+setopts(Socket, ssl, Options) ->
+    ssl:setopts(Socket, Options).
+
+recv(Socket, Mod, Vsn0, Status0, Hdrs0, ContentLength, Body0) ->
+	case Mod:recv(Socket, 0) of
 		{ok, {http_response, Vsn1, StatusCode, Description}} ->
 			Status1 = {StatusCode, Description},
-			recv(Socket, Vsn1, Status1, Hdrs0, ContentLength, Body0);
+			recv(Socket, Mod, Vsn1, Status1, Hdrs0, ContentLength, Body0);
 		{ok, {http_header, _, 'Content-Length', _, Length}} ->
 			Hdrs1 = [{"Content-Length", Length} | Hdrs0],
-			recv(Socket, Vsn0, Status0, Hdrs1, list_to_integer(Length), Body0);
+            ILength = list_to_integer(Length),
+			recv(Socket, Mod, Vsn0, Status0, Hdrs1, ILength, Body0);
 		{ok, {http_header, _, Name, _, Value}} when is_atom(Name) ->
 			Hdrs1 = [{atom_to_list(Name), Value} | Hdrs0],
-			recv(Socket, Vsn0, Status0, Hdrs1, ContentLength, Body0);
+			recv(Socket, Mod, Vsn0, Status0, Hdrs1, ContentLength, Body0);
 		{ok, {http_header, _, Name, _, Value}} when is_list(Name) ->
 			Hdrs1 = [{Name, Value} | Hdrs0],
-			recv(Socket, Vsn0, Status0, Hdrs1, ContentLength, Body0);
+			recv(Socket, Mod, Vsn0, Status0, Hdrs1, ContentLength, Body0);
 		{ok, http_eoh} ->
 			if
 				ContentLength > 0 ->
-					inet:setopts(Socket, [{packet, raw}]),
-					case gen_tcp:recv(Socket, ContentLength, 10000) of
+                    setopts(Socket, Mod, [{packet, raw}]),
+					case Mod:recv(Socket, ContentLength) of
 						{ok, Body1} ->
 							{ok, {Vsn0, Status0, Hdrs0, Body1}};
 						{error, Reason} ->
@@ -89,28 +80,3 @@ recv(Socket, Vsn0, Status0, Hdrs0, ContentLength, Body0) ->
 		{error, closed} ->
 			{error, closed}
 	end.
-
-parse_uri(URI) ->
-	parse_uri(URI, [], [], [], []).
-
-parse_uri([$:, $/, $/, S | T], Scheme, [], [], []) ->
-	parse_uri(T, Scheme, [S], [], []);
-parse_uri([S | T], Scheme, [], [], []) ->
-	parse_uri(T, [S | Scheme], [], [], []);
-parse_uri([$:, P | T], Scheme, Server, [], []) ->
-	parse_uri(T, Scheme, Server, [P], []);
-parse_uri([S | T], Scheme, Server, [], []) ->
-	parse_uri(T, Scheme, [S | Server], [], []);
-parse_uri([$/ | T], Scheme, Server, [], []) ->
-	parse_uri(T, Scheme, Server, 80, [$/]);
-parse_uri([$/ | T], Scheme, Server, Port, []) ->
-	parse_uri(T, Scheme, Server, Port, [$/]);
-parse_uri([P | T], Scheme, Server, Port, []) ->
-	parse_uri(T, Scheme, Server, [P | Port], []);
-parse_uri([P | T], Scheme, Server, Port, Path) ->
-	parse_uri(T, Scheme, Server, Port, [P | Path]);
-parse_uri([], Scheme, Server, [], Path) ->
-	{lists:reverse(Scheme), lists:reverse(Server), 80, lists:reverse(Path)};
-parse_uri([], Scheme, Server, Port0, Path) ->
-	Port1 = list_to_integer(lists:reverse(Port0)),
-	{lists:reverse(Scheme), lists:reverse(Server), Port1, lists:reverse(Path)}.

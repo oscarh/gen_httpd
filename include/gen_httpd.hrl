@@ -30,8 +30,7 @@
 %%% OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 %%% SUCH DAMAGE.
 %%% ----------------------------------------------------------------------------
--record(gen_httpd_conn, {
-		scheme,
+-record(http_conn, {
 		remote_address,
 		remote_port,
 		local_address,

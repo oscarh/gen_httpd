@@ -35,10 +35,11 @@
 %%% @author Oscar Hellström <oscar@hellstrom.st> [http://oscar.hellstrom.st]
 %%% @version {@version}, {@date}, {@time}
 %%% @doc
-%%% 
+%%% Utility module for gen_httpd itself, but also for applications using
+%%% gen_httpd.
 %%% @end
 %%% ----------------------------------------------------------------------------
--module(gen_httpd_util).
+-module(ghtp_utils).
 
 -export([
 		header_value/2,
@@ -50,6 +51,7 @@
 -export([parse_query/1, uri_encode/1, uri_decode/1]).
 -export([status_line/2, format_headers/1]).
 -export([internal_error_resp/1, bad_request_resp/1, continue_resp/1]).
+-export([parse_header/1]).
 -export([reason/1]).
 
 -define(URI_ENCODE_ESCAPE,
@@ -208,6 +210,21 @@ reason(502) -> "Bad Gateway";
 reason(503) -> "Service Unavailable";
 reason(504) -> "Gateway Time-Out";
 reason(505) -> "HTTP Version not supported".
+
+%%% @private
+parse_header(Bin) ->
+    Pos = find_hdr_delimiter(Bin, 0),
+    ValueSize = size(Bin) - Pos - 4,
+    <<Name:Pos/binary, $:, $\ , Value:ValueSize/binary, $\r, $\n>> = Bin,
+    {binary_to_list(Name), binary_to_list(Value)}.
+
+find_hdr_delimiter(Bin, Offset) ->
+    case Bin of
+        <<_:Offset/binary, $:, $\ , _/binary>> ->
+            Offset;
+        _ ->
+            find_hdr_delimiter(Bin, Offset + 1)
+    end.
 
 %%% @private
 format_headers(Headers) ->
