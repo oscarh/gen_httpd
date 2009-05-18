@@ -37,9 +37,11 @@ wait(Parent, Socket) ->
 		{'EXIT', Parent, Reason} ->
 			exit(Reason);
 		{'EXIT', _, client_timeout} ->
-			exit(normal);
+			ok;
 		{'EXIT', _, client_closed} ->
-			exit(normal);
+			ok;
+		{'EXIT', _, normal} ->
+			ok;
 		{'EXIT', Pid, Reason} ->
 			handle_internal_error(Pid, Reason, Socket)
 	end.
@@ -98,38 +100,24 @@ read_request_loop(State, TimerRef, Timeout, Request) ->
 	end.
 
 execute_request(Request, State) ->
-	RequestArgs = [
-		State#ghtp_conn.callback,
-		State#ghtp_conn.callback_state,
-		State#ghtp_conn.socket,
-		Request
-	],
-	Pid = spawn_link(ghtp_request, execute, RequestArgs),
-	receive
-		{'EXIT', Pid, {done, false, NextCBState}} ->
-			terminate(normal, State#ghtp_conn{callback_state = NextCBState});
-		{'EXIT', Pid, {done, true, NextCBState}} ->
+	Callback = State#ghtp_conn.callback,
+	CallbackState = State#ghtp_conn.callback_state,
+	Socket = State#ghtp_conn.socket,
+	{KeepAlive, NextCBState} =
+		ghtp_request:execute(Callback, CallbackState, Socket, Request),
+	if
+		KeepAlive ->
 			NextCBState;
-		{'EXIT', Pid, Reason} ->
-			handle_internal_error(Pid, Reason, Request, State),
-			terminate(Reason, State);
-		{'EXIT', _, Reason} -> % Parent died, we should probably die :)
-			terminate(Reason, State)
+		not KeepAlive ->
+			terminate(normal, State#ghtp_conn{callback_state = NextCBState})
 	end.
 
 handle_bad_request(_Request, _Reason, _Socket) ->
 	% TODO: reply here
 	ok.
 
-handle_internal_error(_Pid, _Reason, _Socket) ->
-	% TODO: error report
-	% TODO: reply here
-	ok.
-
-handle_internal_error(_Pid, _Reason, _Request, _State) ->
-	% TODO: error report
-	% TODO: reply here
-	ok.
+handle_internal_error(_Pid, Reason, _Socket) ->
+	exit(Reason).
 
 terminate(Reason, State) ->
 	gen_tcpd:close(State#ghtp_conn.socket),

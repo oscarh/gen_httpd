@@ -55,13 +55,12 @@ execute(CB, CBState, Socket, Request) ->
 	Vsn = Request#request.vsn,
 	URI = Request#request.uri,
 	ReqHdrs = Request#request.headers,
-	NextCBState  = case expect_continue(ReqHdrs) of
+	case expect_continue(ReqHdrs) of
 		true ->
 			handle_continue(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState);
 		false ->
-			CBState
-	end,
-	hadle_request(Socket, Method, URI, Vsn, ReqHdrs, CB, NextCBState).
+			hadle_request(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState)
+	end.
 
 hadle_request(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState) ->
 	Entity = entity(Method, ReqHdrs, Socket),
@@ -69,20 +68,20 @@ hadle_request(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState) ->
 		{reply, Status, ReplyHdrs, Body, NextCBState} ->
 			KeepAlive =
 				handle_reply(Socket, Vsn, ReqHdrs, Status, ReplyHdrs, Body),
-			exit({done, KeepAlive, NextCBState});
+			{KeepAlive, NextCBState};
 		Other ->
 			erlang:error({bad_return, Other})
 	end.
 
 handle_continue(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState) ->
 	case CB:handle_continue(Method, URI, Vsn, ReqHdrs, CBState) of
-		{continue, RespHdrs, NextCBStateState} ->
+		{continue, RespHdrs, NextCBState} ->
 			send_status_and_hdr(Socket, Vsn, 100, RespHdrs),
-			NextCBStateState;
+			hadle_request(Socket, Method, URI, Vsn, ReqHdrs, CB, NextCBState);
 		{reply, Status, ReplyHdrs, Body, NextCBState} -> 
 			KeepAlive = 
 				handle_reply(Socket, Vsn, ReqHdrs, Status, ReplyHdrs, Body),
-			exit({done, KeepAlive, NextCBState});
+			{KeepAlive, NextCBState};
 		Other ->
 			erlang:error({bad_return, Other})
 	end.
