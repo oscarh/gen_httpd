@@ -37,9 +37,11 @@ wait(Parent, Socket) ->
 		{'EXIT', Parent, Reason} ->
 			exit(Reason);
 		{'EXIT', _, client_timeout} ->
-			exit(normal);
+			ok;
 		{'EXIT', _, client_closed} ->
-			exit(normal);
+			ok;
+		{'EXIT', _, normal} ->
+			ok;
 		{'EXIT', Pid, Reason} ->
 			handle_internal_error(Pid, Reason, Socket)
 	end.
@@ -114,10 +116,8 @@ handle_bad_request(_Request, _Reason, _Socket) ->
 	% TODO: reply here
 	ok.
 
-handle_internal_error(_Pid, _Reason, _Socket) ->
-	% TODO: error report
-	% TODO: reply here
-	ok.
+handle_internal_error(_Pid, Reason, _Socket) ->
+	exit(Reason).
 
 terminate(Reason, State) ->
 	gen_tcpd:close(State#ghtp_conn.socket),
