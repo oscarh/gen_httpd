@@ -120,7 +120,7 @@ recv_loopp(Socket, Start, Bytes) ->
 recv_loopr(Reader, Start, Bytes) ->
     receive
         {data, Data} ->
-            Reader ! accept,
+            Reader ! ack,
             recv_loopr(Reader, Start, Bytes + size(Data));
         {closed, Socket} ->
             close(Socket, Start, Bytes)
@@ -130,7 +130,7 @@ reader(Controller, Socket) ->
     case gen_tcp:recv(Socket, 0) of
         {ok, Data} ->
             Controller ! {data, Data},
-            receive accept -> reader(Controller, Socket) end;
+            receive ack -> reader(Controller, Socket) end;
         {error, closed} ->
             Controller ! {closed, Socket}
     end.
