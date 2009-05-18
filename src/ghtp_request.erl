@@ -69,7 +69,7 @@ hadle_request(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState) ->
 		{reply, Status, ReplyHdrs, Body, NextCBState} ->
 			KeepAlive =
 				handle_reply(Socket, Vsn, ReqHdrs, Status, ReplyHdrs, Body),
-			exit({done, KeepAlive, NextCBState});
+			{KeepAlive, NextCBState};
 		Other ->
 			erlang:error({bad_return, Other})
 	end.
@@ -82,7 +82,7 @@ handle_continue(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState) ->
 		{reply, Status, ReplyHdrs, Body, NextCBState} -> 
 			KeepAlive = 
 				handle_reply(Socket, Vsn, ReqHdrs, Status, ReplyHdrs, Body),
-			exit({done, KeepAlive, NextCBState});
+			{KeepAlive, NextCBState};
 		Other ->
 			erlang:error({bad_return, Other})
 	end.
