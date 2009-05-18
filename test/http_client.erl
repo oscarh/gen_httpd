@@ -1,8 +1,8 @@
 -module(http_client).
 
 -export([
-        connect/2,
-        connect/3,
+		connect/2,
+		connect/3,
 		format_request/4,
 		format_request/5,
 		format_headers/1,
