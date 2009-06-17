@@ -104,7 +104,7 @@ upload_chunked({_, Port}) ->
 	FoobarValue = ghtp_utils:header_value("foobar", RecvHdrs),
 	RecvBody = element(4, Response),
 	?assertEqual(200, StatusCode),
-	?assertEqual(FoobarValue, "foobar"),
+	?assertEqual("foobar", FoobarValue),
 	?assertEqual(iolist_to_binary(Body), RecvBody).
 
 not_continue(S) ->
