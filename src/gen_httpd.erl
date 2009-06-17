@@ -193,7 +193,7 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSL) ->
 	validate_sock_opts(SockOpts),
 	Opts = [{active, false}, binary | SockOpts] ++ SSL,
 	InitArg = [Callback, CallbackArg, Timeout],
-	gen_tcpd:start_link(?MODULE, InitArg, ssl, Port, Opts, 60000).
+	gen_tcpd:start_link(?MODULE, InitArg, ssl, Port, 20, Opts, 60000).
 
 %% @spec port(Ref) -> {ok, Port}
 %% Ref = pid()
