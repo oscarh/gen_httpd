@@ -130,7 +130,6 @@ send_chunks(Socket, Reader) ->
 			send_chunk(Socket, C),
 			send_chunks(Socket, Reader);
 		{trailers, T} ->
-			gen_tcpd:send(Socket, ["0\r\n", ghtp_utils:format_headers(T)]),
 			% We've already done some protocol checks for this since we
 			% checked when the status and headers was sent. We're just
 			% checking again so that we're not getting any Connection: close
@@ -139,6 +138,7 @@ send_chunks(Socket, Reader) ->
 				"close" -> false;
 				_       -> true
 			end,
+			gen_tcpd:send(Socket, ["0\r\n", ghtp_utils:format_headers(T)]),
 			KeepAlive;
 		Other ->
 			erlang:error({bad_return, Other})
@@ -146,7 +146,7 @@ send_chunks(Socket, Reader) ->
 
 send_chunk(Socket, Chunk) ->
 	ChunkSize = iolist_size(Chunk),
-	Data = [erlang:integer_to_list(ChunkSize, 16), "\r\n", Chunk],
+	Data = [erlang:integer_to_list(ChunkSize, 16), "\r\n", Chunk, "\r\n"],
 	gen_tcpd:send(Socket, Data).
 
 send_status_and_hdr(Socket, Vsn, Status, Hdrs) ->
