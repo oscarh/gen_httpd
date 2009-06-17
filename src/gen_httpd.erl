@@ -65,14 +65,14 @@
 %%%
 %%% This function should return <code>{ok, State}</code> where
 %%% <code>State</code> is the State which will be passed to
-%%% <a href="#callback:handle_request/5"> <code>handle_request/5</code>
+%%% <a href="#callback:handle_request/5">`handle_request/5'</a>
 %%%
 %%% <strong>Note!</strong> This
 %%% callback will <strong>not</strong> be called by the same process that
 %%% will call the handle_request later if <code>{ok, State}</code>
 %%% is returned.
 %%%
-%%% <a name="callback:handle_request/5">
+%%% <a name="callback:handle_request/5" />
 %%% <pre>
 %%% Module:handle_request(Method, URI, Vsn, Headers, RequestBody, State) -> Result
 %%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
@@ -175,14 +175,13 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts) ->
 	gen_tcpd:start_link(?MODULE, InitArg, tcp, Port, 20, Opts, 60000).
 	
 %% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts,
-%%                  SSL, Options) -> {ok, Pid}
+%%                  SSL) -> {ok, Pid}
 %% Callback = atom()
 %% CallbackArg = term()
 %% Port = integer()
 %% Timeout = integer()
 %% SockOpts = [SockOpt]
 %% SSL = [SSLOpt]
-%% Options = [Opt]
 %% Pid = pid()
 %% @doc Starts a gen_httpd process with an SSL backend and links to it.
 %%
