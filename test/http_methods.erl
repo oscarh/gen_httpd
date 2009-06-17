@@ -1,10 +1,16 @@
 -module(http_methods).
 -export([
-        init/2,
-        handle_continue/5,
-        handle_request/6,
-        terminate/2
+		init/2,
+		handle_continue/5,
+		handle_request/6,
+		terminate/2
     ]).
+
+-export([
+		send_chunks/2,
+		send_parts/2,
+		parts/2
+	]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -130,6 +136,68 @@ continue(S) ->
 	?assertEqual(200, StatusCode2),
 	?assertEqual(iolist_to_binary(Body), RecvBody).
 
+download_test_() ->
+	{setup, fun listen/0, fun stop/1, {with, [
+			fun download_chunked/1,
+			fun download_chunked2/1,
+			fun download_partial/1,
+			fun download_partial2/1
+		]}}.
+
+download_chunked({_, Port}) ->
+	{ok, S} = http_client:connect(Port, gen_tcp, []),
+	Request = http_client:format_request("GET", "/download_chunks", "HTTP/1.1", []),
+	gen_tcp:send(S, Request),
+	{ok, Response} = http_client:receive_response(S),
+	StatusCode = element(1, element(2, Response)),
+	RespBody = element(4, Response),
+	?assertEqual(200, StatusCode),
+	?assertEqual(<<>>, RespBody),
+	inet:setopts(S, [{packet, raw}]),
+	{ok, _Body} = chunks(S, []),
+	{ok, Trailers} = trailers(S),
+	?assertEqual(["Foobar: foobar"], Trailers),
+	gen_tcp:close(S).
+
+download_chunked2({_, Port}) ->
+	{ok, S} = http_client:connect(Port, gen_tcp, []),
+	Request = http_client:format_request("GET", "/download_chunks2", "HTTP/1.1", []),
+	gen_tcp:send(S, Request),
+	{ok, Response} = http_client:receive_response(S),
+	StatusCode = element(1, element(2, Response)),
+	RespBody = element(4, Response),
+	?assertEqual(200, StatusCode),
+	?assertEqual(<<>>, RespBody),
+	inet:setopts(S, [{packet, raw}]),
+	{ok, _Body} = chunks(S, []),
+	{ok, Trailers} = trailers(S),
+	?assertEqual(["Foobar: foobar"], Trailers),
+	gen_tcp:close(S).
+
+download_partial({_, Port}) ->
+	{ok, S} = http_client:connect(Port, gen_tcp, []),
+	Request = http_client:format_request("GET", "/download_parts", "HTTP/1.1", []),
+	gen_tcp:send(S, Request),
+	{ok, Response} = http_client:receive_response(S),
+	StatusCode = element(1, element(2, Response)),
+	RespBody = element(4, Response),
+	?assertEqual(200, StatusCode),
+	Size = proplists:get_value("Content-Length", element(3, Response)),
+	?assertEqual(list_to_integer(Size), size(RespBody)),
+	gen_tcp:close(S).
+
+download_partial2({_, Port}) ->
+	{ok, S} = http_client:connect(Port, gen_tcp, []),
+	Request = http_client:format_request("GET", "/download_parts2", "HTTP/1.1", []),
+	gen_tcp:send(S, Request),
+	{ok, Response} = http_client:receive_response(S),
+	StatusCode = element(1, element(2, Response)),
+	RespBody = element(4, Response),
+	?assertEqual(200, StatusCode),
+	Size = proplists:get_value("Content-Length", element(3, Response)),
+	?assertEqual(list_to_integer(Size), size(RespBody)),
+	gen_tcp:close(S).
+
 %%% test help functions
 listen() ->
 	{ok, Pid} = gen_httpd:start_link(?MODULE, nil, 0, 300000, []),
@@ -157,6 +225,49 @@ all_chunks(Reader, Acc) ->
 			{lists:reverse(Acc), T}
 	end.
 
+send_chunks(Pid, Body) ->
+	lists:foreach(fun(Data) ->
+			Pid ! {chunk, Data}
+		end, Body),
+	Pid ! {trailers, [{"Foobar", "foobar"}]},
+	ok.
+
+send_parts(Pid, Body) ->
+	lists:foreach(fun(Data) ->
+			Pid ! {data, Data}
+		end, Body),
+	Pid ! end_of_data,
+	ok.
+
+trailers(S) ->
+	case gen_tcp:recv(S, 0) of
+		{ok, Trailers}  -> {ok, string:tokens(binary_to_list(Trailers), "\r\n")};
+		{error, Reason} -> {error, Reason}
+	end.
+
+chunks(S, Acc) ->
+	case gen_tcp:recv(S, 3) of
+		{ok, <<"0\r\n">>} ->
+			{ok, Acc};
+		{ok, <<Size:1/binary, "\r\n">>} -> 
+			?assertEqual("4", binary_to_list(Size)),
+			case gen_tcp:recv(S, 6) of
+				{ok, Chunk} ->
+					chunks(S, [binary_to_list(Chunk)|Acc]);
+				{error, Reason} ->
+					{error, Reason}
+			end;
+		{error, Reason} -> {error, Reason}
+	end.
+
+parts(S, Size) ->
+	case gen_tcp:recv(S, Size) of
+		{ok, Body}      -> {ok, Body};
+		{error, Reason} -> {error, Reason}
+	end.
+
+
+
 %%% gen_httpd callbacks
 init(_, _) ->
 	{ok, nil}.
@@ -170,6 +281,58 @@ handle_continue("POST", "/upload", {1,1}, ReqHdrs, State) ->
 		ContentLength < 65536 ->
 			{continue, [], State}
 	end.
+
+handle_request("GET", "/download_chunks", {1,1}, _ReqHdrs, _, State) ->
+	Reader = fun() ->
+			receive Data -> Data
+			after 10000  -> {error, timeout}
+			end
+	end,
+	Body = lists:map(fun(Int) ->
+				erlang:integer_to_list(Int)
+			end, lists:seq(1000, 1010)),
+	spawn(?MODULE, send_chunks, [self(), Body]),
+	{reply, 200, [{"transfer-encoding", "chunked"}], {partial, Reader}, State};
+
+handle_request("GET", "/download_chunks2", {1,1}, _ReqHdrs, _, State) ->
+	Reader = fun() ->
+		receive Data -> Data
+		after 10000 -> {error, timeout}
+		end
+	end,
+	Body = lists:map(fun(Int) ->
+			erlang:integer_to_list(Int)
+		end, lists:seq(1000, 1010)),
+	spawn(?MODULE, send_chunks, [self(), tl(Body)]),
+	{reply, 200, [{"transfer-encoding", "chunked"}], {partial, hd(Body), Reader}, State};
+
+handle_request("GET", "/download_parts", {1,1}, _ReqHdrs, _, State) ->
+	Reader = fun() ->
+			receive Data -> Data
+			after 10000 -> {error, timeout}
+			end
+	end,
+	Body = lists:map(fun(Int) ->
+			erlang:integer_to_list(Int)
+		end, lists:seq(1000, 1010)),
+	Size = integer_to_list(size(iolist_to_binary(Body))),
+	spawn(?MODULE, send_parts, [self(), Body]),
+	Hdrs = [{"content-length", Size}],
+	{reply, 200, Hdrs, {partial, Reader}, State};
+
+handle_request("GET", "/download_parts2", {1,1}, _ReqHdrs, _, State) ->
+	Reader = fun() ->
+			receive Data -> Data
+			after 10000 -> {error, timeout}
+			end
+	end,
+	Body = lists:map(fun(Int) ->
+			erlang:integer_to_list(Int)
+		end, lists:seq(1000, 1010)),
+	Size = integer_to_list(size(iolist_to_binary(Body))),
+	spawn(?MODULE, send_parts, [self(), tl(Body)]),
+	Hdrs = [{"content-length", Size}],
+	{reply, 200, Hdrs, {partial, hd(Body), Reader}, State};
 
 handle_request("POST", "/upload", {1,1}, _, {identity, Reader}, State) ->
 	{ok, Body} = Reader(10000),
