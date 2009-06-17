@@ -107,6 +107,10 @@ handle_reply(Socket, Vsn, ReqHdrs, Status, ReplyHdrs, Body) ->
 			gen_tcpd:send(Socket, Part),
 			send_parts(Socket, ReaderFun),
 			HdrKeepAlive;
+		{partial, Hdrs, ReaderFun} ->
+			send_status_and_hdr(Socket, Vsn, Status, Hdrs),
+			send_parts(Socket, ReaderFun),
+			HdrKeepAlive;
 		{complete, Hdrs, Body} ->
 			Data = format_response(Vsn, Status, Hdrs, Body),
 			gen_tcpd:send(Socket, Data),
