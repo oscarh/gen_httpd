@@ -170,18 +170,21 @@
 %% This function should normally be called from a supervisor.
 start_link(Callback, CallbackArg, Port, Timeout, SockOpts) ->
 	validate_sock_opts(SockOpts),
-	Opts = [{active, false}, binary | SockOpts],
 	InitArg = [Callback, CallbackArg, Timeout],
-	gen_tcpd:start_link(?MODULE, InitArg, tcp, Port, 20, Opts, 60000).
+	Options = [
+		{acceptors, 20},
+		{socket_options, [{active, false}, binary | SockOpts]}
+	],
+	gen_tcpd:start_link(?MODULE, InitArg, tcp, Port, Options).
 	
 %% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts,
-%%                  SSL) -> {ok, Pid}
+%%                  SSLOpts) -> {ok, Pid}
 %% Callback = atom()
 %% CallbackArg = term()
 %% Port = integer()
 %% Timeout = integer()
 %% SockOpts = [SockOpt]
-%% SSL = [SSLOpt]
+%% SSLOpts = [SSLOpt]
 %% Pid = pid()
 %% @doc Starts a gen_httpd process with an SSL backend and links to it.
 %%
@@ -189,11 +192,15 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts) ->
 %% <a href="http://www.erlang.org/doc/man/ssl.html"><code>ssl</code></a>.
 %%
 %% This function should normally be called from a supervisor.
-start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSL) ->
+start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSLOpts) ->
 	validate_sock_opts(SockOpts),
-	Opts = [{active, false}, binary | SockOpts] ++ SSL,
 	InitArg = [Callback, CallbackArg, Timeout],
-	gen_tcpd:start_link(?MODULE, InitArg, ssl, Port, 20, Opts, 60000).
+	Options = [
+		{acceptors, 20},
+		{ssl_accept_timeout, 30000},
+		{socket_options, [{active, false}, binary | SockOpts] ++ SSLOpts}
+	],
+	gen_tcpd:start_link(?MODULE, InitArg, ssl, Port, Options).
 
 %% @spec port(Ref) -> {ok, Port}
 %% Ref = pid()
