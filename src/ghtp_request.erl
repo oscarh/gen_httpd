@@ -185,7 +185,10 @@ entity_type(Hdrs) ->
     end.
 
 entity_reader({identity, Length}, Socket) ->
-    fun(Timeout) -> gen_tcpd:recv(Socket, Length, Timeout) end;
+    fun
+		(complete, Timeout) -> gen_tcpd:recv(Socket, Length, Timeout);
+		(Bytes, Timeout)    -> gen_tcpd:recv(Socket, Bytes, Timeout)
+	end;
 entity_reader({chunked, _}, Socket) ->
     fun(Timeout) -> read_chunk(Socket, Timeout) end;
 entity_reader({undefined, _}, Socket) ->

@@ -335,7 +335,7 @@ handle_request("GET", "/download_parts2", {1,1}, _ReqHdrs, _, State) ->
 	{reply, 200, Hdrs, {partial, hd(Body), Reader}, State};
 
 handle_request("POST", "/upload", {1,1}, _, {identity, Reader}, State) ->
-	{ok, Body} = Reader(10000),
+	{ok, Body} = Reader(complete, 10000),
 	Hdrs = [{"Content-Length", integer_to_list(iolist_size(Body))}],
 	{reply, 200, Hdrs, Body, State};
 
