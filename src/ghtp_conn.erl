@@ -47,7 +47,6 @@ wait(Parent, Socket) ->
 	end.
 
 request_loop(#ghtp_conn{parent = Parent} = State) ->
-	process_flag(trap_exit, true),
 	link(Parent),
 	NewCBState = execute_request(read_request(State), State),
 	unlink(Parent),
@@ -58,20 +57,15 @@ request_loop(#ghtp_conn{parent = Parent} = State) ->
 read_request(#ghtp_conn{socket = Socket} = State) ->
 	gen_tcpd:setopts(Socket, [{packet, http}]),
 	Timeout = State#ghtp_conn.sock_timeout,
-	TimerRef = erlang:send_after(Timeout, self(), timeout),
-	Request = read_request_loop(State, TimerRef, Timeout, #request{}),
-	cancel_timer(TimerRef),
+	Request = read_request_loop(State, Timeout, #request{}),
 	gen_tcpd:setopts(Socket, [{packet, raw}]),
 	Request.
 
-read_request_loop(State, _, Timeout, _) when Timeout < 1 ->
+read_request_loop(State, Timeout, _) when Timeout < 0 ->
 	terminate(client_timeout, State);
-read_request_loop(State, TimerRef, Timeout, Request) ->
+read_request_loop(State, Timeout, Request) ->
+    Start = now(),
 	Data = gen_tcpd:recv(State#ghtp_conn.socket, 0, Timeout),
-	NextTimeout = case erlang:read_timer(TimerRef) of
-		false -> 0;
-		Time -> Time
-	end,
 	case Data of
 		{ok, {http_request, Method, URI, Vsn}} ->
 			UpdatedRequest = Request#request{
@@ -79,13 +73,13 @@ read_request_loop(State, TimerRef, Timeout, Request) ->
 				uri = normalize_uri(URI),
 				vsn = Vsn
 			},
-			read_request_loop(State, TimerRef, NextTimeout, UpdatedRequest);
+			read_request_loop(State, timeout(Timeout, Start), UpdatedRequest);
 		{ok, {http_header, _, Name, _, Value}} ->
 			Hdr = {maybe_atom_to_list(Name), Value},
 			UpdatedRequest = Request#request{
 				headers = [Hdr | Request#request.headers]
 			},
-			read_request_loop(State, TimerRef, NextTimeout, UpdatedRequest);
+			read_request_loop(State, timeout(Timeout, Start), UpdatedRequest);
 		{ok, http_eoh} ->
 			Request;
 		{error, {http_error, HTTPReason} = Reason} ->
@@ -117,6 +111,7 @@ handle_bad_request(_Request, _Reason, _Socket) ->
 	ok.
 
 handle_internal_error(_Pid, Reason, _Socket) ->
+    % TODO: reply here
 	exit(Reason).
 
 terminate(Reason, State) ->
@@ -151,8 +146,7 @@ normalize_uri('*') ->
 normalize_uri(URI) when is_list(URI) ->
     URI.
 
-cancel_timer(TimerRef) ->
-	case erlang:cancel_timer(TimerRef) of
-		false -> receive timeout -> ok end;
-		_ -> ok
-	end.
+timeout(infinity, _) ->
+    infinity;
+timeout(MS, Start) ->
+    MS - (timer:now_diff(now(), Start) div 1000).
