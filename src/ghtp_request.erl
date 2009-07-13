@@ -44,12 +44,6 @@
 
 -include("gen_httpd_int.hrl").
 
--define(TYPE(REPLY), element(1, REPLY)).
--define(STATUS(REPLY), element(2, REPLY)).
--define(HDRS(REPLY), element(3, REPLY)).
--define(BODY(REPLY), element(4, REPLY)).
--define(CBSTATE(REPLY), element(size(REPLY), REPLY)).
-
 execute(CB, CBState, Socket, Request) ->
 	Method = Request#request.method,
 	Vsn = Request#request.vsn,
