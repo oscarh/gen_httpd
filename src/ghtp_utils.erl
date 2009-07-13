@@ -233,13 +233,13 @@ format_headers(Headers) ->
 			end, Headers), $\r, $\n].
 
 %%% @private
-status_line({Major, Minor}, {Status, Reason}) ->
+status_line({Major, Minor}, {StatusCode, Reason}) when is_integer(StatusCode) ->
 	[
 		"HTTP/", integer_to_list(Major), ".", integer_to_list(Minor), $\ ,
-		integer_to_list(Status), $\ , Reason, $\r, $\n
+		integer_to_list(StatusCode), $\ , Reason, $\r, $\n
 	];
-status_line(Vsn, Status) ->
-	status_line(Vsn, {Status, reason(Status)}).
+status_line(Vsn, StatusCode) when is_integer(StatusCode) ->
+	status_line(Vsn, {StatusCode, reason(StatusCode)}).
 
 char_to_hex(Char) ->
 	string:right(erlang:integer_to_list(Char, 16), 2, $0).
