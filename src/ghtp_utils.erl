@@ -198,7 +198,7 @@ reason(409) -> "Conflict";
 reason(410) -> "Gone";
 reason(411) -> "Length Required";
 reason(412) -> "Precondition Failed";
-reason(413) -> "Request Entitiy Too Large";
+reason(413) -> "Request Entity Too Large";
 reason(414) -> "Request-URI Too Large";
 reason(415) -> "Unsupported Media Type";
 reason(416) -> "Requested range tot satisfiable";
