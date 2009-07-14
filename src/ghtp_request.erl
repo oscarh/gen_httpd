@@ -252,10 +252,9 @@ handle_body(_, Body) ->
 	erlang:error({bad_return, {body, Body}}).
 
 expect_continue(Headers) ->
-	case header_value("expect", Headers, undefined) of
+	case string:to_lower(header_value("expect", Headers, "undefined")) of
 		"100-continue" -> true;
-		undefined      -> false;
-		_              -> false
+		_              -> false;
 	end.
 
 keep_alive(Vsn, ReqHdrs, RespHdrs) ->
