@@ -67,25 +67,23 @@
 %%% <code>State</code> is the State which will be passed to
 %%% <a href="#callback:handle_request/5">`handle_request/5'</a>
 %%%
-%%% <strong>Note!</strong> This
-%%% callback will <strong>not</strong> be called by the same process that
-%%% will call the handle_request later if <code>{ok, State}</code>
-%%% is returned.
+%%% <strong>Note!</strong> This callback will <strong>not</strong> be called
+%%% by the same process that will call the handle_request later.
 %%%
 %%% <a name="callback:handle_request/5" />
 %%% <pre>
-%%% Module:handle_request(Method, URI, Vsn, Headers, RequestBody, State) -> Result
+%%% Module:handle_request(Method, URI, Vsn, Headers, Body, State) -> Result
 %%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
 %%%                    'DELETE' | 'TRACE' | string()
-%%%           URI = '*' | {absoluteURI, http |
-%%%                 https, Host=string(), Port=int() |
-%%%                 undefined, Path=string()} |
-%%%                 {scheme, Scheme=string(), string()} | {abs_path, string} |
-%%%                 string()
+%%%           URI = string()
 %%%           Vsn = {Major, Minor}
 %%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
-%%%           RequestBody = binary()
+%%%           Body = {identity, EntityState} | {chunked, EntitiyState}
+%%%           Chunk = binary()
+%%%           Reason = term()
+%%%           Length = integer() >= 0 | complete
+%%%           Timeout = integer() >= 0 | infinity
 %%%           Name = Value = string()
 %%%           State = term()
 %%%           Result = {reply, Status, Headers, Body, State}
@@ -96,15 +94,34 @@
 %%% </pre>
 %%% Handle a HTTP request.
 %%%
+%%% If the content length is known, `Body' will be `{identity, State}'.
+%%% `State' is an opaque data structure that can be passed to
+%%% {@link gen_httpd:read_body/2}.
+%%%
+%%% If the content length is unknown, but the entity body is with chunked
+%%% transfer encoding `Body' will instead be `{chunked, State}'. Where
+%%% `State' can be passed to {@link gen_httpd:read_body/2}. In this case,
+%%% {@link gen_httpd:read_body/2} can read maximum a chunk at the time, and
+%%% will have to be called several times to get all chunks.
+%%%
+%%% If you don't want to use the API to read the entity body, it is possible
+%%% to use the `Socket' passed to `init/2' when the connection is
+%%% established. This socket can be used through the {@link //gen_tcpd} API.
+%%%
+%%% Currently, `GET', `HEAD' and `TRACE' methods will return 400 (Bad
+%%% Request), if they include indications that they have content. For all
+%%% other requests `gen_httpd' will try to read the content length or the
+%%% transfer encoding header to find out the content length. If this
+%%% fails, and `undefined' `Body' will be passed to the callback, which can
+%%% decide to return either 411 (Length Required) or do something else with
+%%% the request. If content is sent but isn't read from the socket,
+%%% any subsequent request will fail.
 %%%
 %%% <pre>
 %%% Module:handle_continue(Method, URI, Vsn, Headers, State) -> Result
 %%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
 %%%                    'DELETE' | 'TRACE' | string()
-%%%           URI = '*' | {absoluteURI, http | https, Host=string(), Port=int() |
-%%%                 undefined, Path=string()} |
-%%%                 {scheme, Scheme=string(), string()} | {abs_path, string} |
-%%%                 string()
+%%%           URI = string()
 %%%           Vsn = {Major, Minor}
 %%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
@@ -134,16 +151,19 @@
 %%% server will return an appropriate HTTP response and try to read the next
 %%% request from the client.
 %%%
-%%% <strong>Note!</strong> This
-%%% callback will <strong>not</strong> be called by the same process that
-%%% will call the handle_request later if <code>{continue, State}</code>
-%%% is returned.
+%%% <pre>
+%%% Module:terminate(Reason, State)
+%%% Reason = term()
+%%% State = term()
+%%% </pre>
+%%% This callback is called when the connection is closed. It's not a
+%%% termination of the HTTP server as such. But only the connection.
 %%% @end
 %%% ----------------------------------------------------------------------------
 -module(gen_httpd).
 -behaviour(gen_tcpd).
 
--export([start_link/5, start_link/6, port/1, stop/1]).
+-export([start_link/5, start_link/6, read_body/3, port/1, stop/1]).
 -export([init/1, handle_connection/2, handle_info/2, terminate/2]).
 -export([behaviour_info/1]).
 
@@ -212,9 +232,37 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSLOpts) ->
 port(Ref) ->
 	gen_tcpd:port(Ref).
 
+%% @spec (Pid) -> ok
+%% Pid = pid()
+%% @doc
+%% Stops the instance of gen_httpd. Mainly used during testing since
+%% gen_httpd should otherwise be part of a supervision tree.
+%% @end
 -spec stop(pid()) -> ok.
 stop(Pid) ->
 	gen_tcpd:stop(Pid).
+
+-spec read_body(pos_integer() | complete, timeout(), _) -> ok.
+%% @spec (Length, Timeout, State) -> Body
+%% Length = integer() | complete
+%% Timeout = integer() | infinity
+%% Body = binary()
+%% @doc
+%% Reads an entity body. This is called by applications using gen_httpd to
+%% read entity bodies.
+%%
+%% `Length' can aither be an integer, or the atom `complete'.
+%% If `Length' is  the atom `complete', the complete
+%% entity body will be read and returned.
+%% 
+%% If is an integer, it must be >= 1. This means that `Length' bytes will be
+%% read from the socket. If the remaining body is less than `Length' the
+%% remaining body will be returned.
+%%
+%% Timeout is the milliseconds to wait for data on the socket.
+%% @end
+read_body(Length, Timeout, State) ->
+	ghtp_request:read_body(Length, Timeout, State).
 
 %% @hidden
 init([Callback, CallbackArg, Timeout]) ->

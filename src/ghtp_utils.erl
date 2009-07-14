@@ -48,10 +48,16 @@
 		update_header/3,
 		remove_header/2
 	]).
+-export([timeout/2]).
 -export([parse_query/1, uri_encode/1, uri_decode/1]).
--export([status_line/2, format_headers/1]).
--export([internal_error_resp/0, bad_request_resp/0, continue_resp/1]).
--export([parse_header/1]).
+-export([
+        format_response/3,
+        format_response/4,
+        status_line/2,
+        format_headers/1
+    ]).
+-export([chunk_size/1]).
+-export([internal_error_resp/0, bad_request_resp/0]).
 -export([reason/1]).
 
 -define(URI_ENCODE_ESCAPE,
@@ -158,10 +164,6 @@ bad_request_resp() ->
 	[status_line({1, 1}, 400), format_headers([{"connection", "close"}])].
 
 %%% @private
-continue_resp(Hdrs) ->
-    [status_line({1,1}, 100), format_headers([])].
-
-%%% @private
 reason(100) -> "Continue";
 reason(101) -> "Switching Protocols";
 
@@ -206,28 +208,22 @@ reason(503) -> "Service Unavailable";
 reason(504) -> "Gateway Time-Out";
 reason(505) -> "HTTP Version not supported".
 
-%%% @private
-parse_header(Bin) ->
-    Pos = find_hdr_delimiter(Bin, 0),
-    ValueSize = size(Bin) - Pos - 4,
-    <<Name:Pos/binary, $:, $\ , Value:ValueSize/binary, $\r, $\n>> = Bin,
-    {binary_to_list(Name), binary_to_list(Value)}.
+%% @private
+format_response(Vsn, Status, Hdrs) ->
+    format_response(Vsn, Status, Hdrs, []).
 
-find_hdr_delimiter(Bin, Offset) ->
-    case Bin of
-        <<_:Offset/binary, $:, $\ , _/binary>> ->
-            Offset;
-        _ ->
-            find_hdr_delimiter(Bin, Offset + 1)
-    end.
+%% @private
+format_response(Vsn, Status, Hdrs, Body) ->
+    [status_line(Vsn, Status), format_headers(Hdrs), Body].
 
-%%% @private
+
+%% @private
 format_headers(Headers) ->
 	[lists:map(fun({Name, Value}) ->
 					[Name, $:, $\ , Value, $\r, $\n]
 			end, Headers), $\r, $\n].
 
-%%% @private
+%% @private
 status_line({Major, Minor}, {StatusCode, Reason}) when is_integer(StatusCode) ->
 	[
 		"HTTP/", integer_to_list(Major), ".", integer_to_list(Minor), $\ ,
@@ -235,6 +231,23 @@ status_line({Major, Minor}, {StatusCode, Reason}) when is_integer(StatusCode) ->
 	];
 status_line(Vsn, StatusCode) when is_integer(StatusCode) ->
 	status_line(Vsn, {StatusCode, reason(StatusCode)}).
+
+%% @private
+timeout(infinity, _) ->
+    infinity;
+timeout(MS, Start) ->
+    MS - (timer:now_diff(now(), Start) div 1000).
+
+%% @private
+chunk_size(Bin) ->
+    erlang:list_to_integer(lists:reverse(chunk_size(Bin, [])), 16).
+
+chunk_size(<<$;, _/binary>>, Acc) ->
+    Acc;
+chunk_size(<<"\r\n", _/binary>>, Acc) ->
+    Acc;
+chunk_size(<<Char, Rest/binary>>, Acc) ->
+    chunk_size(Rest, [Char | Acc]).
 
 char_to_hex(Char) ->
 	string:right(erlang:integer_to_list(Char, 16), 2, $0).

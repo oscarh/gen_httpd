@@ -73,13 +73,15 @@ read_request_loop(State, Timeout, Request) ->
 				uri = normalize_uri(URI),
 				vsn = Vsn
 			},
-			read_request_loop(State, timeout(Timeout, Start), UpdatedRequest);
+			NewTimeout = ghtp_utils:timeout(Timeout, Start),
+			read_request_loop(State, NewTimeout, UpdatedRequest);
 		{ok, {http_header, _, Name, _, Value}} ->
 			Hdr = {maybe_atom_to_list(Name), Value},
 			UpdatedRequest = Request#request{
 				headers = [Hdr | Request#request.headers]
 			},
-			read_request_loop(State, timeout(Timeout, Start), UpdatedRequest);
+			NewTimeout = ghtp_utils:timeout(Timeout, Start),
+			read_request_loop(State, NewTimeout, UpdatedRequest);
 		{ok, http_eoh} ->
 			Request;
 		{error, {http_error, _} = Reason} ->
@@ -107,7 +109,7 @@ execute_request(Request, State) ->
 	end.
 
 handle_bad_request(Socket) ->
-    gen_tcpd:send(Socket, ghtp_utils:bad_request_resp()).
+    gen_tcpd:send(Socket, ghtp_utils:bad_request_resp()),
 	ok.
 
 handle_internal_error(_Pid, Reason, Socket) ->
@@ -145,8 +147,3 @@ normalize_uri('*') ->
     "*";
 normalize_uri(URI) when is_list(URI) ->
     URI.
-
-timeout(infinity, _) ->
-    infinity;
-timeout(MS, Start) ->
-    MS - (timer:now_diff(now(), Start) div 1000).
