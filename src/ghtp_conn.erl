@@ -82,8 +82,8 @@ read_request_loop(State, Timeout, Request) ->
 			read_request_loop(State, timeout(Timeout, Start), UpdatedRequest);
 		{ok, http_eoh} ->
 			Request;
-		{error, {http_error, HTTPReason} = Reason} ->
-			handle_bad_request(Request, HTTPReason, State#ghtp_conn.socket),
+		{error, {http_error, _} = Reason} ->
+			handle_bad_request(State#ghtp_conn.socket),
 			terminate(Reason, State);
 		{error, timeout} ->
 			terminate(client_timeout, State);
@@ -97,7 +97,7 @@ execute_request(Request, State) ->
 	Callback = State#ghtp_conn.callback,
 	CallbackState = State#ghtp_conn.callback_state,
 	Socket = State#ghtp_conn.socket,
-	{KeepAlive, NextCBState} =
+	{KeepAlive, NextCBState} = % FIXME try / catch here
 		ghtp_request:execute(Callback, CallbackState, Socket, Request),
 	if
 		KeepAlive ->
@@ -106,12 +106,12 @@ execute_request(Request, State) ->
 			terminate(normal, State#ghtp_conn{callback_state = NextCBState})
 	end.
 
-handle_bad_request(_Request, _Reason, _Socket) ->
-	% TODO: reply here
+handle_bad_request(Socket) ->
+    gen_tcpd:send(Socket, ghtp_utils:bad_request_resp()).
 	ok.
 
-handle_internal_error(_Pid, Reason, _Socket) ->
-    % TODO: reply here
+handle_internal_error(_Pid, Reason, Socket) ->
+    gen_tcpd:send(Socket, ghtp_utils:internal_error_resp()),
 	exit(Reason).
 
 terminate(Reason, State) ->

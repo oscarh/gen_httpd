@@ -50,7 +50,7 @@
 	]).
 -export([parse_query/1, uri_encode/1, uri_decode/1]).
 -export([status_line/2, format_headers/1]).
--export([internal_error_resp/1, bad_request_resp/1, continue_resp/1]).
+-export([internal_error_resp/0, bad_request_resp/0, continue_resp/1]).
 -export([parse_header/1]).
 -export([reason/1]).
 
@@ -150,21 +150,16 @@ uri_decode([], Acc) ->
 	lists:reverse(Acc).
 
 %%% @private
-internal_error_resp(Version) ->
-	Headers = [{"connection", "close"}],
-	[status_line(Version, 500), format_headers(Headers)].
+internal_error_resp() ->
+    [status_line({1, 1}, 500), format_headers([{"connection", "close"}])].
 
 %%% @private
-bad_request_resp(true) ->
-	bad_request_resp([{"connection", "close"}]);
-bad_request_resp(false) ->
-	bad_request_resp([]);
-bad_request_resp(Headers) ->
-	[status_line({1, 1}, 400), format_headers(Headers)].
+bad_request_resp() ->
+	[status_line({1, 1}, 400), format_headers([{"connection", "close"}])].
 
 %%% @private
-continue_resp(Vsn) ->
-	[status_line(Vsn, 100), format_headers([])].
+continue_resp(Hdrs) ->
+    [status_line({1,1}, 100), format_headers([])].
 
 %%% @private
 reason(100) -> "Continue";
