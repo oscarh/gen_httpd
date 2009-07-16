@@ -37,6 +37,9 @@
 %%% @doc
 %%% Utility module for gen_httpd itself, but also for applications using
 %%% gen_httpd.
+%%%
+%%% == References ==
+%%% RFC2396: http://www.ietf.org/rfc/rfc2396.txt
 %%% @end
 %%% ----------------------------------------------------------------------------
 -module(ghtp_utils).
@@ -50,14 +53,15 @@
 		remove_header/2
 	]).
 -export([timeout/2]).
--export([parse_query/1, uri_encode/1, uri_decode/1]).
+-export([split_uri/1, parse_query/1, uri_encode/1, uri_decode/1]).
 -export([
 	format_response/3,
 	format_response/4,
 	status_line/2,
 	format_headers/1
 	]).
--export([reason/1]).
+
+-include("gen_httpd_types.hrl").
 
 -define(URI_ENCODE_ESCAPE,
 	[
@@ -69,22 +73,43 @@
 		$ , $<, $>, $#, $%, $", ${, $}, $|, $\\, $^, $[, $], $`
 	]).
 
+%% @type header() = {string(), string()}.
+
+%% @spec (Name, Headers) -> Values
+%% Name = string()
+%% Headers = [header()]
+%% Values = [string()]
+%% @doc
+%% Returns all values for the header named `Name'.
+%% `Name' is expected to be a lowercase string.
+%% Returns a list of all values found in the list of headers. Useful for for
+%% instance "Transfer-Encoding", of which several can be applied.
+%% @end
+-spec header_values(string(), [header()]) -> [header()].
 header_values(Name, Headers) ->
 	header_values(Name, Headers, []).
 
-header_values(Name, [{Field, Value} | Headers], Acc) ->
-	case string:to_lower(Field) of
-		Name -> header_values(Name, Headers, [Value | Acc]);
-		_    -> header_values(Name, Headers, Acc)
-	end;
-header_values(_, [], Acc) ->
-	Acc.
-
+%% @spec (Name, Headers) -> Value | undefined
+%%   Name = string()
+%%   Headers = [header()]
+%% @doc
+%% Returns the value of the header named `Name'.
+%% `Name' is expected to be a lowercase string.
+%% Returns `undefined' if the header isn't in the list of headers.
+%% @end
+-spec header_value(string(), [header()]) -> string() | undefined.
 header_value(Name, Headers) ->
 	header_value(Name, Headers, undefined).
 
-header_value(Name, [{Name, Value} | _], _) ->
-	Value;
+%% @spec (Name, Headers, Default :: Default) -> Value | Default
+%%   Name = string()
+%%   Headers = [header()]
+%% @doc
+%% Returns the value of the header named `Name'.
+%% `Name' is expected to be a lowercase string.
+%% Returns `Default' if the header isn't in the list of headers.
+%% @end
+-spec header_value(string(), [header()], Type) -> string() | Type.
 header_value(Name, [{N, Value} | T], Default) ->
 	case string:equal(Name, string:to_lower(N)) of
 		true  -> Value;
@@ -93,8 +118,14 @@ header_value(Name, [{N, Value} | T], Default) ->
 header_value(_, [], Default) ->
 	Default.
 
-header_exists(Name, [{Name, _} | _]) ->
-	true;
+%% @spec (Name, Headers) -> boolean()
+%%   Name = string()
+%%   Headers = [header()]
+%% @doc
+%% Checks if a header is defined in the list of headers. `Name' is expected
+%% to be a lowercase string.
+%% @end
+-spec header_exists(string(), [header()]) -> true | false.
 header_exists(Name, [{N, _} | T]) ->
 	case string:equal(Name, string:to_lower(N)) of
 		true  -> true;
@@ -103,21 +134,24 @@ header_exists(Name, [{N, _} | T]) ->
 header_exists(_, []) ->
 	false.
 
+%% @spec (Name, Value, Headers) -> Headers
+%%   Name = string()
+%%   Value = string()
+%%   Headers = [header()]
+%% @doc
+%% Replaces the current value for the first occurrence of `Name' with
+%% `Value'. If `Name' isn't define, it's added to the list of headers.
+-spec update_header(string(), string(), [header()]) -> [header()].
 update_header(Name, Value, Headers) ->
 	update_header(Name, Value, Headers, []).
 
-update_header(Name, Value, [{Name, _} | T], Acc) ->
-	Acc ++ [{Name, Value}| T];
-update_header(Name, Value, [{N, _} = Header | T], Acc) ->
-	case string:equal(Name, string:to_lower(N)) of
-		true -> 
-			Acc ++ [{Name, Value}| T];
-		false ->
-			update_header(Name, Value, T, [Header | Acc])
-	end;
-update_header(Name, Value, [], Acc) ->
-	[{Name, Value} | Acc].
-
+%% @spec (Name, Headers) -> Headers
+%%   Name = string()
+%%   Headers = [header()]
+%% @doc
+%% Removes the first occurrence of `Name' from the list of headers.
+%% @end
+-spec remove_header(string(), [header()]) -> [header()].
 remove_header(Name, Headers) ->
 	remove_header(Name, Headers, []).
 
@@ -131,18 +165,137 @@ remove_header(Name, [{N, _} = Header | T], Acc) ->
 			remove_header(Name, T, [Header | Acc])
 	end.
 
+%% @spec (String) -> {URI, QueryString}
+%%   String = string()
+%%   URI = string()
+%%   QueryString = string()
+%% @doc
+%% Splits a URI in to the two parts, the URI and the query string part.
+%% If there isn't any query string, the original string is returned... after
+%% some gymnastics.
+%% 
+%% @end
+-spec split_uri(string()) -> {string(), string()}.
+split_uri(String) ->
+	split_uri(String, []).
+
+%% @spec (QueryString :: QueryString) -> [{Key, Value}]
+%%   QueryString = string()
+%%   Key = string()
+%%   Value = string()
+%% @doc Turns a query string (the part after the first `?' in a URI to
+%% a list of key value tuples.
+%% The query string can be `Path'/`URI' with {@link split_uri/1}.
+%% @end
+-spec parse_query(string()) -> [{string(), string()}].
 parse_query(QueryStr) ->
 	case string:tokens(QueryStr, "&") of
 		[] -> [];
 		Args ->
 			lists:map(fun(Arg) ->
-						[Key, Value] = string:tokens(Arg, "="),
-						{uri_decode(Key), uri_decode(Value)}
+						case string:tokens(Arg, "=") of
+							[Key, Value] ->
+								{uri_decode(Key), uri_decode(Value)};
+							[Key] ->
+								{uri_decode(Key), ""}
+						end
 				end, Args)
 	end.
 
+%% @spec uri_encode(String) -> URIEncodedString
+%%   String = string()
+%%   URIEncodedString = string()
+%% @doc
+%% Encodes a string according to RFC2396.
+%% All reserver or excluded characters are turned in to a "%" HEX HEX
+%% notation.
+%% @end
+-spec uri_encode(string()) -> string().
 uri_encode(Str) ->
 	uri_encode(Str, []).
+
+%% @spec uri_decode(URIEncodedString) -> String
+%%   URIEncodedString = string()
+%%   String = string()
+%% @doc
+%% Decodes a string according to RFC2396.
+%% All "%" HEX HEX sequences are turned in to the character represented by
+%% the HEX HEX number.
+%% @end
+-spec uri_decode(string()) -> string().
+uri_decode(Str) ->
+	uri_decode(Str, []).
+
+uri_decode([$%, A, B | Rest], Acc) ->
+	uri_decode(Rest, [erlang:list_to_integer([A, B], 16) | Acc]);
+uri_decode([H | Rest], Acc) ->
+	uri_decode(Rest, [H | Acc]);
+uri_decode([], Acc) ->
+	lists:reverse(Acc).
+
+%% @private
+format_response(Vsn, Status, Hdrs) ->
+	format_response(Vsn, Status, Hdrs, []).
+
+%% @private
+format_response(Vsn, Status, Hdrs, Body) ->
+	[status_line(Vsn, Status), format_headers(Hdrs), Body].
+
+
+%% @private
+-spec format_headers({string(), string()}) -> iolist().
+format_headers(Headers) ->
+	[lists:map(fun({Name, Value}) ->
+					[Name, $:, $\ , Value, $\r, $\n]
+			end, Headers), $\r, $\n].
+
+%% @private
+-spec status_line({integer(), integer()}, {integer(), string()} | integer()) ->
+	iolist().
+status_line({Major, Minor}, {StatusCode, Reason}) when is_integer(StatusCode) ->
+	[
+		"HTTP/", integer_to_list(Major), ".", integer_to_list(Minor), $\ ,
+		integer_to_list(StatusCode), $\ , Reason, $\r, $\n
+	];
+status_line(Vsn, StatusCode) when is_integer(StatusCode) ->
+	status_line(Vsn, {StatusCode, reason(StatusCode)}).
+
+%% @private
+-spec timeout(timeout(), {integer(), integer(), integer()}) ->
+	timeout().
+timeout(infinity, _) ->
+	infinity;
+timeout(MS, Start) ->
+	MS - (timer:now_diff(now(), Start) div 1000).
+
+%%% Internal functions
+
+header_values(Name, [{Field, Value} | Headers], Acc) ->
+	case string:to_lower(Field) of
+		Name -> header_values(Name, Headers, [Value | Acc]);
+		_    -> header_values(Name, Headers, Acc)
+	end;
+header_values(_, [], Acc) ->
+	Acc.
+
+update_header(Name, Value, [{Name, _} | T], Acc) ->
+	Acc ++ [{Name, Value}| T];
+update_header(Name, Value, [{N, _} = Header | T], Acc) ->
+	case string:equal(Name, string:to_lower(N)) of
+		true -> 
+			Acc ++ [{Name, Value}| T];
+		false ->
+			update_header(Name, Value, T, [Header | Acc])
+	end;
+update_header(Name, Value, [], Acc) ->
+	[{Name, Value} | Acc].
+
+split_uri([$? | QueryString], Acc) ->
+	{lists:reverse(Acc), QueryString};
+split_uri([Char | Tail], Acc) ->
+	split_uri(Tail, [Char | Acc]);
+split_uri([], Acc) ->
+	{lists:reverse(Acc), ""}.
 
 uri_encode([H | T], Acc) ->
 	uri_encode(T, case lists:member(H, ?URI_ENCODE_ESCAPE) of
@@ -155,17 +308,9 @@ uri_encode([H | T], Acc) ->
 uri_encode([], Acc) ->
 	lists:reverse(Acc).
 
-uri_decode(Str) ->
-	uri_decode(Str, []).
+char_to_hex(Char) ->
+	string:right(erlang:integer_to_list(Char, 16), 2, $0).
 
-uri_decode([$%, A, B | Rest], Acc) ->
-	uri_decode(Rest, [erlang:list_to_integer([A, B], 16) | Acc]);
-uri_decode([H | Rest], Acc) ->
-	uri_decode(Rest, [H | Acc]);
-uri_decode([], Acc) ->
-	lists:reverse(Acc).
-
-%%% @private
 reason(100) -> "Continue";
 reason(101) -> "Switching Protocols";
 
@@ -209,36 +354,3 @@ reason(502) -> "Bad Gateway";
 reason(503) -> "Service Unavailable";
 reason(504) -> "Gateway Time-Out";
 reason(505) -> "HTTP Version not supported".
-
-%% @private
-format_response(Vsn, Status, Hdrs) ->
-	format_response(Vsn, Status, Hdrs, []).
-
-%% @private
-format_response(Vsn, Status, Hdrs, Body) ->
-	[status_line(Vsn, Status), format_headers(Hdrs), Body].
-
-
-%% @private
-format_headers(Headers) ->
-	[lists:map(fun({Name, Value}) ->
-					[Name, $:, $\ , Value, $\r, $\n]
-			end, Headers), $\r, $\n].
-
-%% @private
-status_line({Major, Minor}, {StatusCode, Reason}) when is_integer(StatusCode) ->
-	[
-		"HTTP/", integer_to_list(Major), ".", integer_to_list(Minor), $\ ,
-		integer_to_list(StatusCode), $\ , Reason, $\r, $\n
-	];
-status_line(Vsn, StatusCode) when is_integer(StatusCode) ->
-	status_line(Vsn, {StatusCode, reason(StatusCode)}).
-
-%% @private
-timeout(infinity, _) ->
-	infinity;
-timeout(MS, Start) ->
-	MS - (timer:now_diff(now(), Start) div 1000).
-
-char_to_hex(Char) ->
-	string:right(erlang:integer_to_list(Char, 16), 2, $0).
