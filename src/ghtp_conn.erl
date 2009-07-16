@@ -169,6 +169,7 @@ handle_internal_error(_Pid, Reason, Socket) ->
 	gen_tcpd:send(Socket, ghtp_utils:format_response({1, 1}, 500, [])),
 	exit(Reason).
 
+-spec terminate(term(), #ghtp_conn{}) -> no_return().
 terminate(Reason, State) ->
 	gen_tcpd:close(State#ghtp_conn.socket),
 	(State#ghtp_conn.callback):terminate(Reason, State#ghtp_conn.callback_state),

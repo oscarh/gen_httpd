@@ -85,7 +85,7 @@
 %% Returns a list of all values found in the list of headers. Useful for for
 %% instance "Transfer-Encoding", of which several can be applied.
 %% @end
--spec header_values(string(), [header()]) -> [header()].
+-spec header_values(string(), [header()]) -> [string()].
 header_values(Name, Headers) ->
 	header_values(Name, Headers, []).
 
@@ -246,7 +246,7 @@ format_response(Vsn, Status, Hdrs, Body) ->
 
 
 %% @private
--spec format_headers({string(), string()}) -> iolist().
+-spec format_headers([header()]) -> iolist().
 format_headers(Headers) ->
 	[lists:map(fun({Name, Value}) ->
 					[Name, $:, $\ , Value, $\r, $\n]

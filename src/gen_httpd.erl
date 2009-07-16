@@ -169,6 +169,8 @@
 
 -include_lib("gen_tcpd/include/gen_tcpd_types.hrl").
 
+-include("gen_httpd_types.hrl").
+
 -record(gen_httpd, {callback, callback_arg, timeout}).
 
 %% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts) ->
@@ -288,7 +290,9 @@ stop(Pid) ->
 %% callback. Currently only "identity" and "chunked" are supported by
 %% gen_httpd. These are represented by the atoms `identity' and `chunked'.
 %% @end
--spec read_body(pos_integer() | complete, timeout(), _) -> ok.
+-spec read_body(pos_integer() | complete, timeout(), _) ->
+    {ok, {binary(), _}} | {ok, {binary(), done}} |
+    {chunk, {binary(), _}} | {trailers, [header()]}.
 read_body(Length, Timeout, State) ->
 	ghtp_request:read_body(Length, Timeout, State).
 

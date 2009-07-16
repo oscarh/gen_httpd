@@ -132,9 +132,12 @@ entity_info(Hdrs) ->
 
 is_chunked(Hdrs) ->
 	case ghtp_utils:header_values("transfer-encoding", Hdrs) of
-		[]                 -> false;
-		[TransferEncoding] -> string:to_lower(TransferEncoding) =:= "chunked";
-		[_, _ | _]         -> throw(not_implemented)
+		[] ->
+            false;
+		[TransferEncoding] ->
+            string:equal(string:to_lower(TransferEncoding), "chunked");
+		[_, _ | _] ->
+            throw(not_implemented)
 	end.
 
 %%% Handle Expect: 100-continue headers
