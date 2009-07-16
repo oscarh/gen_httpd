@@ -31,7 +31,7 @@ doc:
 	@echo [EDOC] gen_httpd
 	@erl -noinput -eval 'edoc:application(gen_httpd, "./", [{doc, "doc/"}])' -s erlang halt
 
-test: depend $(TEST_BEAMS)
+test: depend $(BEAMS) $(TEST_BEAMS)
 
 .PHONY: all test clean c_src doc
 .SUFFIXES: .erl .beam .app.src .app
