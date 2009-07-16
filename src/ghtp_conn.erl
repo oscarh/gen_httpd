@@ -14,6 +14,7 @@
 -include("gen_httpd_int.hrl").
 -include("gen_httpd.hrl").
 
+-spec init(pid(), module(), _, _, timeout()) -> _.
 init(Parent, Callback, CallbackArg, Socket, SockTimeout) ->
 	CallbackState = case Callback:init(Socket, CallbackArg) of
 		{ok, S}        -> S;
@@ -47,6 +48,7 @@ wait(Parent, Socket) ->
 			handle_internal_error(Pid, Reason, Socket)
 	end.
 
+-spec request_loop(#ghtp_conn{}) -> _.
 request_loop(#ghtp_conn{parent = Parent} = State) ->
 	% Race condition, parent can have been shut down
 	try link(Parent)
