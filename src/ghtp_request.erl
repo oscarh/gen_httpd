@@ -37,6 +37,9 @@
 -export([execute/4]).
 
 -include("gen_httpd_int.hrl").
+-include("gen_httpd_types.hrl").
+
+-include_lib("gen_tcpd/include/gen_tcpd_types.hrl").
 
 -define(MIN(A, B), (if A =< B -> A; B =< A -> B end)).
 
@@ -45,6 +48,9 @@
 
 %% Read the uploaded body
 
+-spec read_body(pos_integer() | complete, timeout(), #chunked{} | #identity{}) ->
+    {ok, {binary(), #identity{}}} | {ok, {binary(), done}} |
+    {chunk, {binary(), #chunked{}}} | {trailers, [header()]}.
 read_body(Length, Timeout, #chunked{} = State) ->
 	RemainingBytes = State#chunked.remaining_bytes,
 	read_chunk(Length, Timeout, RemainingBytes, State#chunked.socket, []);
@@ -54,6 +60,8 @@ read_body(Length, Timeout, State) ->
 
 %%% Execute a request
 
+-spec execute(atom(), CBState, gen_tcpd_socket(), #request{}) ->
+    {true | false, CBState}.
 execute(CB, CBState, Socket, Request) ->
 	Method = Request#request.method,
 	Vsn = Request#request.vsn,
