@@ -67,7 +67,7 @@ read_request(#ghtp_conn{socket = Socket} = State) ->
 read_request_loop(State, Timeout, _) when Timeout < 0 ->
 	terminate(client_timeout, State);
 read_request_loop(State, Timeout, Request) ->
-    Start = now(),
+	Start = now(),
 	Data = gen_tcpd:recv(State#ghtp_conn.socket, 0, Timeout),
 	case Data of
 		{ok, {http_request, Method, URI, Vsn}} ->
@@ -127,11 +127,11 @@ execute_request(Request, State) ->
 	end.
 
 handle_bad_request(Socket) ->
-    gen_tcpd:send(Socket, ghtp_utils:bad_request_resp()),
+	gen_tcpd:send(Socket, ghtp_utils:bad_request_resp()),
 	ok.
 
 handle_internal_error(_Pid, Reason, Socket) ->
-    gen_tcpd:send(Socket, ghtp_utils:internal_error_resp()),
+	gen_tcpd:send(Socket, ghtp_utils:internal_error_resp()),
 	exit(Reason).
 
 terminate(Reason, State) ->
@@ -154,14 +154,14 @@ maybe_atom_to_list(List) when is_list(List) ->
 	List.
 
 normalize_uri({abs_path, Path}) ->
-    Path;
+	Path;
 normalize_uri({absoluteURI, http, Host, Port, Path}) ->
-    lists:concat(["http://", Host, ":", Port, Path]);
+	lists:concat(["http://", Host, ":", Port, Path]);
 normalize_uri({absoluteURI, https, Host, Port, Path}) ->
-    lists:concat(["https://", Host, ":", Port, Path]);
+	lists:concat(["https://", Host, ":", Port, Path]);
 normalize_uri({scheme, Scheme, Path}) ->
-    lists:concat([Scheme, "://", Path]);
+	lists:concat([Scheme, "://", Path]);
 normalize_uri('*') ->
-    "*";
+	"*";
 normalize_uri(URI) when is_list(URI) ->
-    URI.
+	URI.
