@@ -65,12 +65,12 @@
 %%%
 %%% This function should return <code>{ok, State}</code> where
 %%% <code>State</code> is the State which will be passed to
-%%% <a href="#callback:handle_request/5">`handle_request/5'</a>
+%%% <a href="#callback:handle_request/6">`handle_request/6'</a>
 %%%
 %%% <strong>Note!</strong> This callback will <strong>not</strong> be called
 %%% by the same process that will call the handle_request later.
 %%%
-%%% <a name="callback:handle_request/5" />
+%%% <a name="callback:handle_request/6" />
 %%% <pre>
 %%% Module:handle_request(Method, URI, Vsn, Headers, Body, State) -> Result
 %%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
@@ -188,6 +188,8 @@
 %% href="http://www.erlang.org/doc/man/gen_tcp.html"><code>gen_tcp</code></a>.
 %%
 %% This function should normally be called from a supervisor.
+-spec start_link(atom(), term(), 0..65535, timeout(), [_]) ->
+	{ok, pid()} | {error, term()} | ignore.
 start_link(Callback, CallbackArg, Port, Timeout, SockOpts) ->
 	validate_sock_opts(SockOpts),
 	InitArg = [Callback, CallbackArg, Timeout],
@@ -212,6 +214,8 @@ start_link(Callback, CallbackArg, Port, Timeout, SockOpts) ->
 %% <a href="http://www.erlang.org/doc/man/ssl.html"><code>ssl</code></a>.
 %%
 %% This function should normally be called from a supervisor.
+-spec start_link(atom(), term(), 0..65535, timeout(), [_], [_]) ->
+	{ok, pid()} | {error, term()} | ignore.
 start_link(Callback, CallbackArg, Port, Timeout, SockOpts, SSLOpts) ->
 	validate_sock_opts(SockOpts),
 	InitArg = [Callback, CallbackArg, Timeout],
@@ -242,15 +246,15 @@ port(Ref) ->
 stop(Pid) ->
 	gen_tcpd:stop(Pid).
 
--spec read_body(pos_integer() | complete, timeout(), _) -> ok.
 %% @spec (Length, Timeout, State) -> Result
-%% Length = integer() | complete
-%% Timeout = integer() | infinity
-%% Result = {ok, {Body, NextState}} |
-%%          {chunk, {Body, NextState}} | {trailers, Trailers} | 
-%%          {error, Reason}
-%% Body = binary()
-%% Trailers = {string(), string()}
+%%   Length = integer() | complete
+%%   Timeout = integer() | infinity
+%%   Result = {ok, {Body, NextState}} | {ok, {Body, complete}} |
+%%            {chunk, {Chunk, NextState}} | {trailers, Trailers} | 
+%%            {error, Reason}
+%%   Chunk = binary()
+%%   Body = binary()
+%%   Trailers = {string(), string()}
 %% @doc
 %% Reads an entity body. This is called by applications using gen_httpd to
 %% read entity bodies.
@@ -264,7 +268,25 @@ stop(Pid) ->
 %% remaining body will be returned.
 %%
 %% Timeout is the milliseconds to wait for data on the socket.
+%% 
+%% If the transfer encoding is "identity", the function returns
+%% `{ok, {Body, NextState}}' 
+%% NextState' is the updated state to use in the next call to this function.
+%% If the returned body is the complete body or last piece of the body,
+%% `NextState' will be the atom `done'.
+%%
+%% If the transfer encoding is "chunked" the function will return
+%% `{chunk, {Chunk, NextState}' or `{trailers, Trailers}'.
+%% `NextState' is the updated state to pass to the next call to this
+%% function.  This functions shouldn't be called again after `{trailers,
+%% Trailers}' has been returned.
+%% 
+%% The transfer encoding is indicated by the first element of the `Body'
+%% tuple in the <a href="#callback:handle_request/6">`handle_request/6'</a>
+%% callback. Currently only "identity" and "chunked" are supported by
+%% gen_httpd. These are represented by the atoms `identity' and `chunked'.
 %% @end
+-spec read_body(pos_integer() | complete, timeout(), _) -> ok.
 read_body(Length, Timeout, State) ->
 	ghtp_request:read_body(Length, Timeout, State).
 
