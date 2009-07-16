@@ -52,11 +52,11 @@
 -export([timeout/2]).
 -export([parse_query/1, uri_encode/1, uri_decode/1]).
 -export([
-        format_response/3,
-        format_response/4,
-        status_line/2,
-        format_headers/1
-    ]).
+	format_response/3,
+	format_response/4,
+	status_line/2,
+	format_headers/1
+	]).
 -export([chunk_size/1]).
 -export([internal_error_resp/0, bad_request_resp/0]).
 -export([reason/1]).
@@ -169,7 +169,7 @@ uri_decode([], Acc) ->
 
 %%% @private
 internal_error_resp() ->
-    [status_line({1, 1}, 500), format_headers([{"connection", "close"}])].
+	[status_line({1, 1}, 500), format_headers([{"connection", "close"}])].
 
 %%% @private
 bad_request_resp() ->
@@ -222,11 +222,11 @@ reason(505) -> "HTTP Version not supported".
 
 %% @private
 format_response(Vsn, Status, Hdrs) ->
-    format_response(Vsn, Status, Hdrs, []).
+	format_response(Vsn, Status, Hdrs, []).
 
 %% @private
 format_response(Vsn, Status, Hdrs, Body) ->
-    [status_line(Vsn, Status), format_headers(Hdrs), Body].
+	[status_line(Vsn, Status), format_headers(Hdrs), Body].
 
 
 %% @private
@@ -246,20 +246,20 @@ status_line(Vsn, StatusCode) when is_integer(StatusCode) ->
 
 %% @private
 timeout(infinity, _) ->
-    infinity;
+	infinity;
 timeout(MS, Start) ->
-    MS - (timer:now_diff(now(), Start) div 1000).
+	MS - (timer:now_diff(now(), Start) div 1000).
 
 %% @private
 chunk_size(Bin) ->
-    erlang:list_to_integer(lists:reverse(chunk_size(Bin, [])), 16).
+	erlang:list_to_integer(lists:reverse(chunk_size(Bin, [])), 16).
 
 chunk_size(<<$;, _/binary>>, Acc) ->
-    Acc;
+	Acc;
 chunk_size(<<"\r\n", _/binary>>, Acc) ->
-    Acc;
+	Acc;
 chunk_size(<<Char, Rest/binary>>, Acc) ->
-    chunk_size(Rest, [Char | Acc]).
+	chunk_size(Rest, [Char | Acc]).
 
 char_to_hex(Char) ->
 	string:right(erlang:integer_to_list(Char, 16), 2, $0).
