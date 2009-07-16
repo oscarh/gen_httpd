@@ -234,10 +234,13 @@ uri_decode([], Acc) ->
 	lists:reverse(Acc).
 
 %% @private
+-spec format_response(version(), status(), [header()]) -> iolist().
 format_response(Vsn, Status, Hdrs) ->
 	format_response(Vsn, Status, Hdrs, []).
 
 %% @private
+-spec format_response(version(), status(), [header()], iolist() | binary()) ->
+    iolist().
 format_response(Vsn, Status, Hdrs, Body) ->
 	[status_line(Vsn, Status), format_headers(Hdrs), Body].
 
@@ -250,7 +253,7 @@ format_headers(Headers) ->
 			end, Headers), $\r, $\n].
 
 %% @private
--spec status_line({integer(), integer()}, {integer(), string()} | integer()) ->
+-spec status_line(version(), status()) ->
 	iolist().
 status_line({Major, Minor}, {StatusCode, Reason}) when is_integer(StatusCode) ->
 	[

@@ -32,3 +32,5 @@
 %%% ----------------------------------------------------------------------------
 
 -type header() :: {string(), string()}.
+-type version() :: {integer(), integer()}.
+-type status() :: integer() | {integer(), string()}.
