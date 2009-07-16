@@ -278,18 +278,21 @@ post_1_0_keep_alive(Hdrs) ->
 
 %%% Help functions for reading of bodies 
 
-read_identity(_, _, 0, Socket) ->
-	State = #identity{remaining_bytes = 0, socket = Socket},
-	{ok, {<<>>, State}};
 read_identity(_, Timeout, _, _) when Timeout < 0 -> % infinity > 0
 	{error, timeout};
 read_identity(Length, Timeout, RemainingBytes, Socket) ->
 	case gen_tcpd:recv(Socket, ?MIN(Length, RemainingBytes), Timeout) of
 		{ok, Data} ->
-			State = #identity{
-				remaining_bytes = RemainingBytes - size(Data),
-				socket = Socket
-			},
+			NewRemainingBytes = RemainingBytes - size(Data),
+			State = case NewRemainingBytes of
+				0 ->
+					http_eob;
+				Bytes ->
+					#identity{
+						remaining_bytes = Bytes,
+						socket = Socket
+					}
+			end,
 			{ok, {Data, State}};
 		Other ->
 			Other
