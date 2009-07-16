@@ -50,6 +50,7 @@ clean:
 %.beam: %.erl
 	@echo [ERLC] $<
 	@$(ERLC) -o ebin $(EFLAGS) \
+		-pa ../gen_tcpd/ebin \
 		-I include \
 		-DREV=$(REV) \
 		$(patsubst %,-pa $(TOP_DIR)/%/ebin, $(EDEPS)) $<
