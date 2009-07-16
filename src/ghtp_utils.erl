@@ -57,7 +57,6 @@
 	status_line/2,
 	format_headers/1
 	]).
--export([internal_error_resp/0, bad_request_resp/0]).
 -export([reason/1]).
 
 -define(URI_ENCODE_ESCAPE,
@@ -165,14 +164,6 @@ uri_decode([H | Rest], Acc) ->
 	uri_decode(Rest, [H | Acc]);
 uri_decode([], Acc) ->
 	lists:reverse(Acc).
-
-%%% @private
-internal_error_resp() ->
-	[status_line({1, 1}, 500), format_headers([{"connection", "close"}])].
-
-%%% @private
-bad_request_resp() ->
-	[status_line({1, 1}, 400), format_headers([{"connection", "close"}])].
 
 %%% @private
 reason(100) -> "Continue";

@@ -1,3 +1,4 @@
+%%% @private
 -module(ghtp_conn).
 -export([init/5]).
 -export([request_loop/1]).
@@ -127,11 +128,11 @@ execute_request(Request, State) ->
 	end.
 
 handle_bad_request(Socket) ->
-	gen_tcpd:send(Socket, ghtp_utils:bad_request_resp()),
+	gen_tcpd:send(Socket, ghtp_utils:format_response({1, 1}, 400, [])),
 	ok.
 
 handle_internal_error(_Pid, Reason, Socket) ->
-	gen_tcpd:send(Socket, ghtp_utils:internal_error_resp()),
+	gen_tcpd:send(Socket, ghtp_utils:format_response({1, 1}, 500, [])),
 	exit(Reason).
 
 terminate(Reason, State) ->
