@@ -47,7 +47,10 @@ wait(Parent, Socket) ->
 	end.
 
 request_loop(#ghtp_conn{parent = Parent} = State) ->
-	link(Parent),
+	% Race condition, parent can have been shut down
+	try link(Parent)
+	catch error:noproc -> exit(normal)
+	end,
 	NewCBState = execute_request(read_request(State), State),
 	unlink(Parent),
 	NewState = State#ghtp_conn{callback_state = NewCBState},
