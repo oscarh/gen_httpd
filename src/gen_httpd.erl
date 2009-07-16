@@ -167,6 +167,8 @@
 -export([init/1, handle_connection/2, handle_info/2, terminate/2]).
 -export([behaviour_info/1]).
 
+-include_lib("gen_tcpd/include/gen_tcpd_types.hrl").
+
 -record(gen_httpd, {callback, callback_arg, timeout}).
 
 %% @spec start_link(Callback, CallbackArg, Port, Timeout, SockOpts) ->
@@ -291,6 +293,7 @@ read_body(Length, Timeout, State) ->
 	ghtp_request:read_body(Length, Timeout, State).
 
 %% @hidden
+-spec init(_) -> {ok, #gen_httpd{}}.
 init([Callback, CallbackArg, Timeout]) ->
 	process_flag(trap_exit, true),
 	State = #gen_httpd{
@@ -301,6 +304,7 @@ init([Callback, CallbackArg, Timeout]) ->
 	{ok, State}.
 
 %% @hidden
+-spec handle_connection(gen_tcpd_socket(), #gen_httpd{}) -> _.
 handle_connection(Socket, State) ->
 	CB = State#gen_httpd.callback,
 	CBArg = State#gen_httpd.callback_arg,
@@ -308,6 +312,7 @@ handle_connection(Socket, State) ->
 	ghtp_conn:init(self(), CB, CBArg, Socket, Timeout).
 
 %% @hidden
+-spec handle_info(_, #gen_httpd{}) -> noreply.
 handle_info({'EXIT', _, normal}, _) ->
 	noreply;
 handle_info({'EXIT', Pid, Reason}, _) ->
@@ -318,6 +323,7 @@ handle_info(_, _) ->
 	noreply.
 
 %% @hidden
+-spec terminate(_, #gen_httpd{}) -> ok.
 terminate(_Reason, _State) ->
 	ok.
 
@@ -333,6 +339,7 @@ validate_sock_opts([]) ->
 	ok.
 
 %% @hidden
+-spec behaviour_info(callbacks) -> [{atom(), non_neg_integer()}].
 behaviour_info(callbacks) ->
 	[
 		{init,2},
