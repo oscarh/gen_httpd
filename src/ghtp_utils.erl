@@ -44,6 +44,7 @@
 -export([
 		header_value/2,
 		header_value/3,
+		header_values/2,
 		header_exists/2,
 		update_header/3,
 		remove_header/2
@@ -69,6 +70,17 @@
 		20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 16#7f,
 		$ , $<, $>, $#, $%, $", ${, $}, $|, $\\, $^, $[, $], $`
 	]).
+
+header_values(Name, Headers) ->
+	header_values(Name, Headers, []).
+
+header_values(Name, [{Field, Value} | Headers], Acc) ->
+	case string:to_lower(Field) of
+		Name -> header_values(Name, Headers, [Value | Acc]);
+		_    -> header_values(Name, Headers, Acc)
+	end;
+header_values(_, [], Acc) ->
+	Acc.
 
 header_value(Name, Headers) ->
 	header_value(Name, Headers, undefined).
