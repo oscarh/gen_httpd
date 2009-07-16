@@ -27,29 +27,54 @@ http_methods_test_() ->
 				fun http_non_standard/1
 			]}}.
 
+upload_test_() ->
+	{setup, fun listen/0, fun stop/1, {with, [
+				fun upload/1,
+				fun expect_continue/1,
+				fun upload_chunked/1
+				% TODO add some other upload tests where we read limited
+				% bytes etc. 
+			]}}.
+
+download_test_() ->
+	{setup, fun listen/0, fun stop/1, {with, [
+			fun download_chunked/1,
+			fun download_chunked2/1,
+			fun download_partial/1,
+			fun download_partial2/1
+		]}}.
+
 http_get({_, Port}) ->
-	method("GET", Port).
+	method("GET", Port),
+	ok.
 
 http_options({_, Port}) ->
-	method("OPTIONS", Port).
+	method("OPTIONS", Port),
+	ok.
 
 http_head({_, Port}) ->
-	method("HEAD", Port).
+	method("HEAD", Port),
+	ok.
 
 http_post({_, Port}) ->
-	method("POST", Port).
+	method("POST", Port),
+	ok.
 
 http_put({_, Port}) ->
-	method("PUT", Port).
+	method("PUT", Port),
+	ok.
 
 http_delete({_, Port}) ->
-	method("DELETE", Port).
+	method("DELETE", Port),
+	ok.
 
 http_trace({_, Port}) ->
-	method("TRACE", Port).
+	method("TRACE", Port),
+	ok.
 
 http_non_standard({_, Port}) ->
-	method("NONSTANDARD", Port).
+	method("NONSTANDARD", Port),
+	ok.
 
 method(Method, Port) ->
 	{ok, S} = http_client:connect(Port, gen_tcp, []),
@@ -62,13 +87,6 @@ method(Method, Port) ->
 	?assertEqual(Method, MethodHdr),
 	?assertEqual({error, closed}, Data),
 	gen_tcp:close(S).
-
-upload_test_() ->
-	{setup, fun listen/0, fun stop/1, {with, [
-				fun upload/1,
-				fun expect_continue/1,
-				fun upload_chunked/1
-			]}}.
 
 upload({_, Port}) ->
 	{ok, S} = http_client:connect(Port, gen_tcp, []),
@@ -135,14 +153,6 @@ continue(S) ->
 	RecvBody = element(4, Response2),
 	?assertEqual(200, StatusCode2),
 	?assertEqual(iolist_to_binary(Body), RecvBody).
-
-download_test_() ->
-	{setup, fun listen/0, fun stop/1, {with, [
-			fun download_chunked/1,
-			fun download_chunked2/1,
-			fun download_partial/1,
-			fun download_partial2/1
-		]}}.
 
 download_chunked({_, Port}) ->
 	{ok, S} = http_client:connect(Port, gen_tcp, []),
@@ -216,14 +226,6 @@ send_receive(Socket, Method, URI, Vsn, Hdrs, Body) ->
 	Request = http_client:format_request(Method, URI, Vsn, Hdrs, Body),
 	gen_tcp:send(Socket, Request),
 	http_client:receive_response(Socket).
-
-all_chunks(Reader, Acc) ->
-	case Reader(1000) of
-		{chunk, C} ->
-			all_chunks(Reader, [C | Acc]);
-		{trailers, T} ->
-			{lists:reverse(Acc), T}
-	end.
 
 send_chunks(Pid, Body) ->
 	lists:foreach(fun(Data) ->
@@ -334,14 +336,16 @@ handle_request("GET", "/download_parts2", {1,1}, _ReqHdrs, _, State) ->
 	Hdrs = [{"content-length", Size}],
 	{reply, 200, Hdrs, {partial, hd(Body), Reader}, State};
 
-handle_request("POST", "/upload", {1,1}, _, {identity, Reader}, State) ->
-	{ok, Body} = Reader(complete, 10000),
+handle_request("POST", "/upload", {1,1}, _, {identity, ReaderState}, State) ->
+	{ok, {Body, _}} = gen_httpd:read_body(complete, 1000, ReaderState),
 	Hdrs = [{"Content-Length", integer_to_list(iolist_size(Body))}],
 	{reply, 200, Hdrs, Body, State};
 
-handle_request("POST", "/upload", {1,1}, _, {chunked, Reader}, State) ->
-	{Chunks, Trailers} = all_chunks(Reader, []),
-	{reply, 200, Trailers, Chunks, State};
+handle_request("POST", "/upload", {1,1}, _, {chunked, ReaderState}, State) ->
+	{chunk, {Body, NewReaderState}} = gen_httpd:read_body(complete, 1000,
+		ReaderState),
+	{trailers, Trailers} = gen_httpd:read_body(complete, 1000, NewReaderState),
+	{reply, 200, Trailers, Body, State};
 			
 handle_request(Method, "/methods", {1,0}, _, _, State) ->
 	{reply, {202, "oK"}, [{"X-HTTP-Method", Method}], <<>>, State}.

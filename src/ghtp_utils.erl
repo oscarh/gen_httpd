@@ -57,7 +57,6 @@
 	status_line/2,
 	format_headers/1
 	]).
--export([chunk_size/1]).
 -export([internal_error_resp/0, bad_request_resp/0]).
 -export([reason/1]).
 
@@ -249,17 +248,6 @@ timeout(infinity, _) ->
 	infinity;
 timeout(MS, Start) ->
 	MS - (timer:now_diff(now(), Start) div 1000).
-
-%% @private
-chunk_size(Bin) ->
-	erlang:list_to_integer(lists:reverse(chunk_size(Bin, [])), 16).
-
-chunk_size(<<$;, _/binary>>, Acc) ->
-	Acc;
-chunk_size(<<"\r\n", _/binary>>, Acc) ->
-	Acc;
-chunk_size(<<Char, Rest/binary>>, Acc) ->
-	chunk_size(Rest, [Char | Acc]).
 
 char_to_hex(Char) ->
 	string:right(erlang:integer_to_list(Char, 16), 2, $0).

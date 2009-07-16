@@ -33,8 +33,8 @@
 %%% @private
 -module(ghtp_request).
 
--export([execute/4]).
 -export([read_body/3]).
+-export([execute/4]).
 
 -include("gen_httpd_int.hrl").
 
@@ -42,6 +42,17 @@
 
 -record(chunked, {remaining_bytes, socket}).
 -record(identity, {remaining_bytes, socket}).
+
+%% Read the uploaded body
+
+read_body(Length, Timeout, #chunked{} = State) ->
+	RemainingBytes = State#chunked.remaining_bytes,
+	read_chunk(Length, Timeout, RemainingBytes, State#chunked.socket, []);
+read_body(Length, Timeout, State) ->
+	RemainingBytes = State#identity.remaining_bytes,
+	read_identity(Length, Timeout, RemainingBytes, State#identity.socket).
+
+%%% Execute a request
 
 execute(CB, CBState, Socket, Request) ->
 	Method = Request#request.method,
@@ -53,15 +64,10 @@ execute(CB, CBState, Socket, Request) ->
 		false -> hadle_request(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState)
 	end.
 
-read_body(Length, Timeout, #chunked{} = State) ->
-	RemainingBytes = State#chunked.remaining_bytes,
-	read_chunk(Length, Timeout, RemainingBytes, State#chunked.socket, []);
-read_body(Length, Timeout, State) ->
-	RemainingBytes = State#identity.remaining_bytes,
-	read_identity(Length, Timeout, RemainingBytes, State#identity.socket).
+%%% Handle requests
 
 hadle_request(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState) ->
-	Entity = entity(Method, Vsn, ReqHdrs, Socket),
+	Entity = entity(Method, ReqHdrs, Socket),
 	case CB:handle_request(Method, URI, Vsn, ReqHdrs, Entity, CBState) of
 		{reply, Status, ReplyHdrs, Body, NextCBState} ->
 			KeepAlive =
@@ -70,6 +76,60 @@ hadle_request(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState) ->
 		Other ->
 			erlang:error({bad_return, Other})
 	end.
+
+%%% Handle uploaded entities
+
+entity("GET", Hdrs, _) ->
+	ensure_no_entity(Hdrs);
+entity("HEAD", Hdrs, _) ->
+	ensure_no_entity(Hdrs);
+entity("TRACE", Hdrs, _) ->
+	ensure_no_entity(Hdrs);
+entity(_, Hdrs, Socket) ->
+	case entity_info(Hdrs) of
+		undefined ->
+			undefined;
+		chunked ->
+			State = #chunked{remaining_bytes = 0, socket = Socket},
+			{chunked, State};
+		{identity, Length} ->
+			State = #identity{remaining_bytes = Length, socket = Socket},
+			{identity, State}
+	end.
+
+ensure_no_entity(Hdrs) ->
+	ContentLength = ghtp_utils:header_exists("content-length", Hdrs),
+	TransferEncoding = ghtp_utils:header_exists("transfer-encoding", Hdrs),
+	case {ContentLength, TransferEncoding} of
+		{false, false} -> ok;
+		_              -> throw(bad_request)
+	end.
+
+entity_info(Hdrs) ->
+	ContentLength = ghtp_utils:header_value("content-length", Hdrs),
+	case {ContentLength, is_chunked(Hdrs)} of
+		{_, true} ->
+			% XXX is it an error to specify chunked encoding *and* a
+			% content length? Well as long as it's chunked, I guess it's
+			% chunked :)
+			chunked;
+		{undefined, false} ->
+			undefined;
+		{ContentLength, false}  ->
+			Length = try list_to_integer(ContentLength)
+				catch error:badarg -> throw(bad_request)
+			end,
+			{identity, Length}
+	end.
+
+is_chunked(Hdrs) ->
+	case ghtp_utils:header_values("transfer-encoding", Hdrs) of
+		[]                 -> false;
+		[TransferEncoding] -> string:to_lower(TransferEncoding) =:= "chunked";
+		[_, _ | _]         -> throw(not_implemented)
+	end.
+
+%%% Handle Expect: 100-continue headers
 
 handle_continue(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState) ->
 	case CB:handle_continue(Method, URI, Vsn, ReqHdrs, CBState) of
@@ -83,6 +143,8 @@ handle_continue(Socket, Method, URI, Vsn, ReqHdrs, CB, CBState) ->
 		Other ->
 			erlang:error({bad_return, Other})
 	end.
+
+%%% Handle responses
 
 handle_reply(Socket, Vsn, ReqHdrs, Status, ReplyHdrs, Body) ->
 	HdrKeepAlive = keep_alive(Vsn, ReqHdrs, ReplyHdrs),
@@ -114,6 +176,31 @@ handle_reply(Socket, Vsn, ReqHdrs, Status, ReplyHdrs, Body) ->
 			gen_tcpd:send(Socket, Data),
 			HdrKeepAlive
 	end.
+
+handle_body(Hdrs, {partial, Reader}) ->
+	Type = case ghtp_utils:header_exists("content-length", Hdrs) of
+		true  -> partial;
+		false -> chunked
+	end,
+	UpdatedHdrs = case ghtp_utils:header_exists("transfer-encoding", Hdrs) of
+		true  -> Hdrs;
+		false -> [{"Transfer-Encoding", "chunked"} | Hdrs]
+	end,
+	{Type, UpdatedHdrs, Reader};
+handle_body(Hdrs, {partial, Part, Reader}) ->
+	{Type, UpdatedHdrs, _} = handle_body(Hdrs, {partial, Reader}),
+	{Type, UpdatedHdrs, Part, Reader};
+handle_body(Hdrs, Body) when is_list(Body); is_binary(Body) ->
+	UpdatedHdrs = case ghtp_utils:header_exists("content-length", Hdrs) of
+		false ->
+			Length = iolist_size(Body),
+			[{"Content-Length", integer_to_list(Length)} | Hdrs];
+		true  ->
+			Hdrs
+	end,
+	{complete, UpdatedHdrs, Body};
+handle_body(_, Body) ->
+	erlang:error({bad_return, {body, Body}}).
 
 send_parts(Socket, Reader) ->
 	case Reader() of
@@ -151,84 +238,17 @@ send_chunk(Socket, Chunk) ->
 	Data = [erlang:integer_to_list(ChunkSize, 16), "\r\n", Chunk, "\r\n"],
 	gen_tcpd:send(Socket, Data).
 
-send_response(Socket, Vsn, Status, Hdrs) ->
-	gen_tcpd:send(Socket, ghtp_utils:format_response(Vsn, Status, Hdrs)).
-
-entity("GET", Vsn, Hdrs, _) ->
-	case entity_info(Hdrs, Vsn) of
-		undefined -> undefined;
-		_         -> throw({bad_request, Vsn})
-	end;
-entity("HEAD", Vsn, Hdrs, _) ->
-	case entity_info(Hdrs, Vsn) of
-		undefined -> undefined;
-		_         -> throw({bad_request, Vsn})
-	end;
-entity("TRACE", Vsn, Hdrs, _) ->
-	case entity_info(Hdrs, Vsn) of
-		undefined -> undefined;
-		_         -> throw({bad_request, Vsn})
-	end;
-entity(_, Vsn, Hdrs, Socket) ->
-	case entity_info(Hdrs, Vsn) of
-		undefined ->
-			undefined;
-		chunked ->
-			ChunkedState = {0, Socket},
-			{chunked, ChunkedState};
-		{identity, Length} ->
-			{identity, {Length, Socket}}
-	end.
-
-entity_info(Hdrs, Vsn) ->
-	case ghtp_utils:header_value("content-length", Hdrs) of
-		undefined -> 
-			TransferEncoding = string:to_lower(
-				ghtp_utils:header_value("transfer-encoding", Hdrs, "undefined")
-			),
-			case TransferEncoding of
-				"chunked"   -> chunked;
-				"undefined" -> undefined
-			end;
-		SLength ->
-			Length = try
-				list_to_integer(SLength)
-				catch error:badarg -> throw({bad_request, Vsn})
-			end,
-			{identity, Length}
-	end.
-
-handle_body(Hdrs, {partial, Reader}) ->
-	Type = case ghtp_utils:header_exists("content-length", Hdrs) of
-		true  -> partial;
-		false -> chunked
-	end,
-	UpdatedHdrs = case ghtp_utils:header_exists("transfer-encoding", Hdrs) of
-		true  -> Hdrs;
-		false -> [{"Transfer-Encoding", "chunked"} | Hdrs]
-	end,
-	{Type, UpdatedHdrs, Reader};
-handle_body(Hdrs, {partial, Part, Reader}) ->
-	{Type, UpdatedHdrs, _} = handle_body(Hdrs, {partial, Reader}),
-	{Type, UpdatedHdrs, Part, Reader};
-handle_body(Hdrs, Body) when is_list(Body); is_binary(Body) ->
-	UpdatedHdrs = case ghtp_utils:header_exists("content-length", Hdrs) of
-		false ->
-			Length = iolist_size(Body),
-			[{"Content-Length", integer_to_list(Length)} | Hdrs];
-		true  ->
-			Hdrs
-	end,
-	{complete, UpdatedHdrs, Body};
-handle_body(_, Body) ->
-	erlang:error({bad_return, {body, Body}}).
-
 expect_continue(Headers) ->
 	ExpectToken = ghtp_utils:header_value("expect", Headers, "undefined"),
 	case string:to_lower(ExpectToken) of
 		"100-continue" -> true;
 		_              -> false
 	end.
+
+send_response(Socket, Vsn, Status, Hdrs) ->
+	gen_tcpd:send(Socket, ghtp_utils:format_response(Vsn, Status, Hdrs)).
+
+%%% Connection related helper functions
 
 keep_alive(Vsn, ReqHdrs, RespHdrs) ->
 	% First of all, let the callback module decide
@@ -258,26 +278,42 @@ post_1_0_keep_alive(Hdrs) ->
 
 %%% Help functions for reading of bodies 
 
+read_identity(_, _, 0, Socket) ->
+	State = #identity{remaining_bytes = 0, socket = Socket},
+	{ok, {<<>>, State}};
+read_identity(_, Timeout, _, _) when Timeout < 0 -> % infinity > 0
+	{error, timeout};
 read_identity(Length, Timeout, RemainingBytes, Socket) ->
-	gen_tcpd:recv(Socket, ?MIN(Length, RemainingBytes), Timeout).
+	case gen_tcpd:recv(Socket, ?MIN(Length, RemainingBytes), Timeout) of
+		{ok, Data} ->
+			State = #identity{
+				remaining_bytes = RemainingBytes - size(Data),
+				socket = Socket
+			},
+			{ok, {Data, State}};
+		Other ->
+			Other
+	end.
 
 read_chunk(0, _, RemainingBytes, Socket, Acc) ->
 	State = #chunked{remaining_bytes = RemainingBytes, socket = Socket},
-	{ok, {list_to_binary(Acc), State}};
-read_chunk(_, Timeout, _, _, _) when Timeout =/= infinity, Timeout < 0 ->
+	{chunk, {list_to_binary(Acc), State}};
+read_chunk(_, Timeout, _, _, _) when Timeout < 0 -> % infinity > 0
 	{error, timeout};
+read_chunk(_, Timeout, trailers, Socket, _) ->
+	read_trailers(Timeout, Socket, []);
 read_chunk(Length, Timeout, 0, Socket, Acc) ->
 	Start = now(),
 	ok = gen_tcpd:setopts(Socket, [{packet, line}]),
 	case gen_tcpd:recv(Socket, 0, Timeout) of
 		{ok, ChunkSizeExt} ->
-			case ghtp_utils:chunk_size(ChunkSizeExt) of
+			case chunk_size(ChunkSizeExt) of
 				0 ->
 					State = #chunked{
 						remaining_bytes = trailers,
 						socket = Socket
 					},
-					{ok, {list_to_binary(Acc), State}};
+					{chunk, {list_to_binary(Acc), State}};
 				ChunkSize ->
 					ok = gen_tcpd:setopts(Socket, [{packet, raw}]),
 					NewTimeout = ghtp_utils:timeout(Timeout, Start),
@@ -286,21 +322,39 @@ read_chunk(Length, Timeout, 0, Socket, Acc) ->
 		Other ->
 			Other
 	end;
-read_chunk(_, Timeout, trailers, Socket, _) ->
-	read_trailers(Timeout, Socket, []);
 read_chunk(Length, Timeout, RemainingBytes, Socket, Acc) ->
 	Start = now(),
-	BytesToRead = ?MIN(Length, RemainingBytes),
+	{DataSize, BytesToRead} = if
+		Length >= RemainingBytes ->
+			{RemainingBytes, RemainingBytes + 2};
+		Length =< RemainingBytes ->
+			{length(Length), Length}
+	end,
 	case gen_tcpd:recv(Socket, BytesToRead, Timeout) of
-		{ok, <<Data:BytesToRead/binary, "\r\n">>} ->
+		{ok, <<Data:DataSize/binary, _/binary>>} ->
 			NewTimeout = ghtp_utils:timeout(Timeout, Start),
-			NewLength = Length - BytesToRead,
-			Bytes = RemainingBytes - BytesToRead,
+			NewLength = if
+				Length =:= complete ->
+					complete;
+				is_integer(Length) ->
+					Length - DataSize
+			end,
+			Bytes = RemainingBytes - DataSize,
 			NewAcc = [Acc, Data],
 			read_chunk(NewLength, NewTimeout, Bytes, Socket, NewAcc);
 		Other ->
 			Other
 	end.
+
+chunk_size(Bin) ->
+	erlang:list_to_integer(lists:reverse(chunk_size(Bin, [])), 16).
+
+chunk_size(<<$;, _/binary>>, Acc) ->
+	Acc;
+chunk_size(<<"\r\n", _/binary>>, Acc) ->
+	Acc;
+chunk_size(<<Char, Rest/binary>>, Acc) ->
+	chunk_size(Rest, [Char | Acc]).
 
 read_trailers(Timeout, _, _) when Timeout =/= infinity, Timeout < 0 ->
 	{error, timeout};
@@ -313,11 +367,11 @@ read_trailers(Timeout, Socket, Trailers) ->
 		{ok, {http_header, _, Name, _, Value}} when is_atom(Name) ->
 			Trailer = {atom_to_list(Name), Value},
 			NewTimeout = ghtp_utils:timeout(Timeout, Start),
-			read_trailers(Socket, [Trailer | Trailers], NewTimeout);
+			read_trailers(NewTimeout, Socket, [Trailer | Trailers]);
 		{ok, {http_header, _, Name, _, Value}} when is_list(Name) ->
 			Trailer = {Name, Value},
 			NewTimeout = ghtp_utils:timeout(Timeout, Start),
-			read_trailers(Socket, [Trailer | Trailers], NewTimeout);
+			read_trailers(NewTimeout, Socket, [Trailer | Trailers]);
 		Other ->
 			Other
 	end.

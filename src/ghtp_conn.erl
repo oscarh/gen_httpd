@@ -102,8 +102,23 @@ execute_request(Request, State) ->
 	Callback = State#ghtp_conn.callback,
 	CallbackState = State#ghtp_conn.callback_state,
 	Socket = State#ghtp_conn.socket,
-	{KeepAlive, NextCBState} = % FIXME try / catch here
-		ghtp_request:execute(Callback, CallbackState, Socket, Request),
+	Version = Request#request.vsn,
+	{KeepAlive, NextCBState} = try 
+		ghtp_request:execute(Callback, CallbackState, Socket, Request)
+		catch
+			not_imlemented ->
+				Response = ghtp_utils:format_response(Version, 501, []),
+				gen_tcpd:send(Socket, Response),
+				terminate(normal, State);
+			length_required ->
+				Response = ghtp_utils:format_response(Version, 411, []),
+				gen_tcpd:send(Socket, Response),
+				terminate(normal, State);
+			bad_request ->
+				Response = ghtp_utils:format_response(Version, 400, []),
+				gen_tcpd:send(Socket, Response),
+				terminate(normal, State)
+	end,
 	if
 		KeepAlive ->
 			NextCBState;

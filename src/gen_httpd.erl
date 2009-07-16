@@ -243,10 +243,14 @@ stop(Pid) ->
 	gen_tcpd:stop(Pid).
 
 -spec read_body(pos_integer() | complete, timeout(), _) -> ok.
-%% @spec (Length, Timeout, State) -> Body
+%% @spec (Length, Timeout, State) -> Result
 %% Length = integer() | complete
 %% Timeout = integer() | infinity
+%% Result = {ok, {Body, NextState}} |
+%%          {chunk, {Body, NextState}} | {trailers, Trailers} | 
+%%          {error, Reason}
 %% Body = binary()
+%% Trailers = {string(), string()}
 %% @doc
 %% Reads an entity body. This is called by applications using gen_httpd to
 %% read entity bodies.
