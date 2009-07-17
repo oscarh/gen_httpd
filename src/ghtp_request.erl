@@ -49,8 +49,8 @@
 %% Read the uploaded body
 
 -spec read_body(pos_integer() | complete, timeout(), #chunked{} | #identity{}) ->
-    {ok, {binary(), #identity{}}} | {ok, {binary(), done}} |
-    {chunk, {binary(), #chunked{}}} | {trailers, [header()]}.
+	{ok, {binary(), #identity{}}} | {ok, {binary(), done}} |
+	{chunk, {binary(), #chunked{}}} | {trailers, [header()]}.
 read_body(Length, Timeout, #chunked{} = State) ->
 	RemainingBytes = State#chunked.remaining_bytes,
 	read_chunk(Length, Timeout, RemainingBytes, State#chunked.socket, []);
@@ -61,7 +61,7 @@ read_body(Length, Timeout, State) ->
 %%% Execute a request
 
 -spec execute(atom(), CBState, gen_tcpd_socket(), #request{}) ->
-    {true | false, CBState}.
+	{true | false, CBState}.
 execute(CB, CBState, Socket, Request) ->
 	Method = Request#request.method,
 	Vsn = Request#request.vsn,
@@ -133,11 +133,11 @@ entity_info(Hdrs) ->
 is_chunked(Hdrs) ->
 	case ghtp_utils:header_values("transfer-encoding", Hdrs) of
 		[] ->
-            false;
+			false;
 		[TransferEncoding] ->
-            string:equal(string:to_lower(TransferEncoding), "chunked");
+			string:equal(string:to_lower(TransferEncoding), "chunked");
 		[_, _ | _] ->
-            throw(not_implemented)
+			throw(not_implemented)
 	end.
 
 %%% Handle Expect: 100-continue headers
