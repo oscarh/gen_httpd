@@ -109,7 +109,7 @@ ensure_no_entity(Hdrs) ->
 	ContentLength = ghtp_utils:header_exists("content-length", Hdrs),
 	TransferEncoding = ghtp_utils:header_exists("transfer-encoding", Hdrs),
 	case {ContentLength, TransferEncoding} of
-		{false, false} -> ok;
+		{false, false} -> undefined;
 		_              -> throw(bad_request)
 	end.
 
@@ -122,6 +122,8 @@ entity_info(Hdrs) ->
 			% chunked :)
 			chunked;
 		{undefined, false} ->
+			undefined;
+		{"0", false} ->
 			undefined;
 		{ContentLength, false}  ->
 			Length = try list_to_integer(ContentLength)
