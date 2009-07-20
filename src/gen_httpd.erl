@@ -73,17 +73,15 @@
 %%% <a name="callback:handle_request/6" />
 %%% <pre>
 %%% Module:handle_request(Method, URI, Vsn, Headers, Body, State) -> Result
-%%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
-%%%                    'DELETE' | 'TRACE' | string()
+%%%     Types Method = string()
 %%%           URI = string()
 %%%           Vsn = {Major, Minor}
 %%%           Major = Minor = integer()
 %%%           Headers = [{Name, Value}]
-%%%           Body = {identity, EntityState} | {chunked, EntitiyState}
+%%%           Body = {identity, EntityState} | {chunked, EntitiyState} |
+%%%                  undefined
 %%%           Chunk = binary()
 %%%           Reason = term()
-%%%           Length = integer() >= 0 | complete
-%%%           Timeout = integer() >= 0 | infinity
 %%%           Name = Value = string()
 %%%           State = term()
 %%%           Result = {reply, Status, Headers, Body, State}
