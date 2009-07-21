@@ -117,8 +117,7 @@
 %%%
 %%% <pre>
 %%% Module:handle_continue(Method, URI, Vsn, Headers, State) -> Result
-%%%     Types Method = 'OPTIONS' | 'GET' | 'HEAD' | 'POST' | 'PUT' |
-%%%                    'DELETE' | 'TRACE' | string()
+%%%     Types Method = string()
 %%%           URI = string()
 %%%           Vsn = {Major, Minor}
 %%%           Major = Minor = integer()
