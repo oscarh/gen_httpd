@@ -5,7 +5,8 @@ ERLC ?= erlc
 EFLAGS ?= -Wall
 
 ## Revision Macro TAG
-REV ?= $(shell hg identify -n -i|awk '{print "\\\""$$2":"$$1"\\\""};')
+#REV ?= $(shell hg identify -n -i|awk '{print "\\\""$$2":"$$1"\\\""};')
+REV ?= "nil"
 
 ## Standard system Configuration
 SED ?= sed
