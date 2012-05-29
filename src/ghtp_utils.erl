@@ -197,7 +197,9 @@ parse_query(QueryStr) ->
 							[Key, Value] ->
 								{uri_decode(Key), uri_decode(Value)};
 							[Key] ->
-								{uri_decode(Key), ""}
+								{uri_decode(Key), ""};
+							[Key | Values] ->
+                                      				{uri_decode(Key), uri_decode(string:join(Values, uri_encode("=")))}
 						end
 				end, Args)
 	end.
